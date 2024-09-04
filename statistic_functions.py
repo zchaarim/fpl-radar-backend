@@ -59,14 +59,14 @@ def ratings_to_fdr(ratings):
     return [att_fdr, def_fdr]
 
 
-def player_score_single_gw(player_id, gw):
+def player_rating_single_gw(player_id, gw):
     """ Calculate a rating score for a player's predicted points in a particular gameweek """
     stats = extractor_functions.get_player_stats(player_id)
     fdr = calculate_fdr_single_gw(player_id, gw)
     return rate_player(stats, fdr)
 
 
-def player_score_multiple_gw(player_id, start_gw, end_gw):
+def player_rating_multiple_gw(player_id, start_gw, end_gw):
     """ Calculate a rating score for a player's predicted points over multiple gameweeks """
     stats = extractor_functions.get_player_stats(player_id)
     avg_fdr = calculate_fdr_multiple_gw(player_id, start_gw, end_gw)
@@ -119,25 +119,31 @@ def defender_rating(stats, fdr):
         defensive_score * (0.5 * fdr[1] + 1) +  # Apply defensive FDR
         attacking_score * (0.5 * fdr[0] + 1) +  # Apply attacking FDR
         stats['bonus'] +
-        0.5 * stats['ict_index']
+        0.5 * float(stats['ict_index'])
     )
     return score
 
 
 def midfielder_rating(stats, fdr):
+    print(stats['web_name'])
     defensive_score = 1 * stats['clean_sheets_per_90']
+    print("Defensive score = " + str(defensive_score))
+    print("Defensive FDR = " + str(fdr[1]))
     attacking_score = (
             5 * stats['goals_scored'] +
             3 * stats['assists'] +
             3 * stats['expected_goals_per_90'] +
             2 * stats['expected_assists_per_90']
     )
+    print("Attacking score = " + str(attacking_score))
+    print("Attacking FDR = " + str(fdr[0]))
     score = (
             defensive_score * (0.25 * fdr[1] + 1) +  # Apply defensive FDR with reduced weight
             attacking_score * (0.5 * fdr[0] + 1) +  # Apply attacking FDR
             stats['bonus'] +
-            0.5 * stats['ict_index']
+            0.5 * float(stats['ict_index'])
     )
+    print("Overall score = " + str(score))
     return score
 
 
@@ -151,6 +157,6 @@ def forward_rating(stats, fdr):
     score = (
             attacking_score * (0.5 * fdr[0] + 1) +  # Apply attacking FDR
             stats['bonus'] +
-            0.5 * stats['ict_index']
+            0.5 * float(stats['ict_index'])
     )
     return score

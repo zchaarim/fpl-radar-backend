@@ -7,12 +7,15 @@ from IPython.display import display
 base_url = 'https://fantasy.premierleague.com/api/'
 bootstrap = 'bootstrap-static/'
 player_summary = 'element-summary/'
+entry = 'entry/'
+event = '/event/'
+picks = '/picks/'
 
 
 def get_fixture_info(player_id, gw):
     """" Given a player's ID and a gameweek number, returns information about that player's fixture
     on that gameweek (team id, opponent id, home or away) """
-    r = requests.get(base_url + player_summary + player_id + '/').json()
+    r = requests.get(base_url + player_summary + str(player_id) + '/').json()
     fixtures = r.get('fixtures', [])
     for fixture in fixtures:
         if fixture['event'] == gw:
@@ -41,6 +44,20 @@ def get_team_difficulty(team_id):
 def get_player_stats(player_id):
     """ Given a player ID, returns a dictionary containing key stats and info about the player """
     r = requests.get(base_url + bootstrap).json()
-    player = r.get('elements', [])[player_id]
-    return player
+    players = r.get('elements', [])
+    for player in players:
+        if int(player['id']) == player_id:
+            return player
+    return None
 
+
+def get_curr_gw():
+    r = requests.get(base_url + player_summary + '1/').json()
+    curr_fixture = r.get('fixtures', [])[0]
+    return curr_fixture['event']
+
+
+def get_manager_team(manager_id):
+    curr_gw = get_curr_gw()
+    team_info = requests.get(base_url + entry + str(manager_id) + event + str(curr_gw - 1) + picks).json()
+    return team_info
