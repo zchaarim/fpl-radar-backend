@@ -9,7 +9,7 @@ bootstrap = 'bootstrap-static/'
 player_summary = 'element-summary/'
 entry = 'entry/'
 event = '/event/'
-picks = '/picks/'
+picks_url = '/picks/'
 
 
 def get_fixture_info(player_id, gw):
@@ -30,8 +30,7 @@ def get_fixture_info(player_id, gw):
 def get_team_difficulty(team_id):
     """" Given a team ID, returns a tuple containing that team's home/away attack and defence ratings
     from FPL API """
-    r = requests.get(base_url + bootstrap).json()
-    team = r.get('teams', [])[team_id]
+    team = get_team_info(team_id)
     home_att = team['strength_attack_home']
     home_def = team['strength_defence_home']
     away_att = team['strength_attack_away']
@@ -39,6 +38,12 @@ def get_team_difficulty(team_id):
     # remember that home ratings represent the difficulty for another team to play THIS team at home
     # e.g. If Fulham play Liverpool at Craven Cottage, difficulty for Fulham = Liverpool home rating
     return home_att, home_def, away_att, away_def
+
+
+def get_team_info(team_id):
+    r = requests.get(base_url + bootstrap).json()
+    team = r.get('teams', [])[team_id]
+    return team
 
 
 def get_player_stats(player_id):
@@ -51,6 +56,16 @@ def get_player_stats(player_id):
     return None
 
 
+def print_player(player_id):
+    stats = get_player_stats(player_id)
+    name = stats['web_name']
+    cost = stats['now_cost'] / 10
+    team_id = stats['team']
+    team_short = get_team_info(team_id - 1)['short_name']
+    print(name + " (" + team_short + ", " + str(cost) + ")", end='    ')
+    return
+
+
 def get_curr_gw():
     r = requests.get(base_url + player_summary + '1/').json()
     curr_fixture = r.get('fixtures', [])[0]
@@ -59,5 +74,53 @@ def get_curr_gw():
 
 def get_manager_team(manager_id):
     curr_gw = get_curr_gw()
-    team_info = requests.get(base_url + entry + str(manager_id) + event + str(curr_gw - 1) + picks).json()
+    team_info = requests.get(base_url + entry + str(manager_id) + event + str(curr_gw - 1) + picks_url).json()
     return team_info
+
+
+def print_manager_team(manager_id):
+    team_info = get_manager_team(manager_id)
+    picks = team_info['picks']
+    gkps = []
+    defs = []
+    mids = []
+    fwds = []
+    bench = []
+    for pick in picks:
+        player_id = pick['element']
+        player = get_player_stats(player_id)
+        if player['element_type'] == 1:
+            gkps.append((player_id, pick['multiplier']))
+        if player['element_type'] == 2:
+            defs.append((player_id, pick['multiplier']))
+        if player['element_type'] == 3:
+            mids.append((player_id, pick['multiplier']))
+        if player['element_type'] == 4:
+            fwds.append((player_id, pick['multiplier']))
+    for item in gkps:
+        if item[1] >= 1:
+            print_player(item[0])
+        elif item[1] < 1:
+            bench.append(item)
+    print('')
+    for item in defs:
+        if item[1] >= 1:
+            print_player(item[0])
+        elif item[1] < 1:
+            bench.append(item)
+    print('')
+    for item in mids:
+        if item[1] >= 1:
+            print_player(item[0])
+        elif item[1] < 1:
+            bench.append(item)
+    print('')
+    for item in fwds:
+        if item[1] >= 1:
+            print_player(item[0])
+        elif item[1] < 1:
+            bench.append(item)
+    print('\nBench: ', end='')
+    for item in bench:
+        print_player(item[0])
+    return
