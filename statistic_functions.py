@@ -160,3 +160,52 @@ def forward_rating(stats, fdr):
             0.5 * float(stats['ict_index'])
     )
     return score
+
+
+def find_player_upgrade_multiple_gw(player_id, manager_id, start_gw, end_gw):
+    team_info = extractor_functions.get_manager_team(manager_id)
+    selected_player = extractor_functions.get_player_stats(player_id)
+    selected_player_rating = player_rating_multiple_gw(player_id, start_gw, end_gw)
+    selected_player_cost = selected_player['now_cost'] / 10
+    budget = team_info['entry_history']['bank'] / 10
+    player_position = selected_player['element_type']
+    comparisons = extractor_functions.get_all_players_in_position(player_position)
+    max_rating = 0
+    best_player = None
+    for player in comparisons:
+        rating = player_rating_multiple_gw(player['id'], start_gw, end_gw)
+        if rating > max_rating and player['cost'] - selected_player_cost + budget >= 0:
+            max_rating = rating
+            best_player = player
+    print("Selected upgrade: ", end = '')
+    extractor_functions.print_player(best_player['id'])
+    return best_player
+
+
+def find_player_upgrade_single_gw(player_id, manager_id, gw):
+    team_info = extractor_functions.get_manager_team(manager_id)
+    selected_player = extractor_functions.get_player_stats(player_id)
+    selected_player_rating = player_rating_single_gw(player_id, gw)
+    selected_player_cost = selected_player['now_cost'] / 10
+    budget = team_info['entry_history']['bank'] / 10
+    player_position = selected_player['element_type']
+    comparisons = extractor_functions.get_all_players_in_position(player_position)
+    max_rating = 0
+    best_player = None
+    for player in comparisons:
+        rating = player_rating_single_gw(player['id'], gw)
+        if rating > max_rating and player['cost'] - selected_player_cost + budget >= 0:
+            max_rating = rating
+            best_player = player
+    print("Selected upgrade: ", end='')
+    extractor_functions.print_player(best_player['id'])
+    return best_player
+
+
+def analyse_whole_team_multiple_gw(manager_id, start_gw, end_gw):
+    team_info = extractor_functions.get_manager_team(manager_id)
+    picks = team_info['picks']
+    for pick in picks:
+        player_id = pick['element']
+        replacement = find_player_upgrade_multiple_gw(player_id, manager_id, start_gw, end_gw)
+    return

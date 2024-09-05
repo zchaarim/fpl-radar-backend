@@ -56,6 +56,16 @@ def get_player_stats(player_id):
     return None
 
 
+def get_all_players_in_position(position_num):
+    r = requests.get(base_url + bootstrap).json()
+    players = r.get('elements', [])
+    wanted_players = []
+    for player in players:
+        if player['element_type'] == position_num:
+            wanted_players.append(player)
+    return wanted_players
+
+
 def print_player(player_id):
     stats = get_player_stats(player_id)
     name = stats['web_name']
