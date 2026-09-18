@@ -1,13 +1,40 @@
-# FPL_Bot
-FPL transfer analyser
+# FPL analyser
 
-Useful API Links:
-* https://fantasy.premierleague.com/api/bootstrap-static/	Main URL for all premier league players, teams, global gameweek summaries
-* https://fantasy.premierleague.com/api/fixtures/	A list of all 380 matches that will happen over the season
-* https://fantasy.premierleague.com/api/element-summary/{EID}/	Remaining fixtures left for PL player as well as previous fixtures and seasons
-* https://fantasy.premierleague.com/api/event/{GW}/live/	Stats of all PL players that played in GW
-* https://fantasy.premierleague.com/api/entry/{TID}/	Basic info on FPL Manager
-* https://fantasy.premierleague.com/api/entry/{TID}/history/	A summary of a FPL Manager for each GW up until the current GW The past season results of a FPL Manager The chips a FPL Manager has played
-* https://fantasy.premierleague.com/api/entry/{TID}/transfers/	All transfers of given team TID
-* https://fantasy.premierleague.com/api/entry/{TID}/event/{GW}/picks/	Squad picks of team TID for week GW. Both TID and GW should be numeric
-* https://fantasy.premierleague.com/api/leagues-classic/{TID}/standings/	Information about league with id LID, such as name and standings, add ?page_standings={P} for leagues with more than 50 teams
+Python backend for Fantasy Premier League transfer analysis: ingest public FPL + Understat xGI, reconstruct a manager’s squad, and rank 1-for-1 transfers. xP uses minutes, opponent-adjusted xG/xA, Poisson CS/GC, shrunk DefCon, bonus, GK saves, and yellow/red rates.
+
+## Setup
+
+Python 3.11+
+
+```text
+python -m pip install -e ".[dev]"
+python -m fpl_analyser.cli sync
+```
+
+## Commands
+
+```text
+python -m fpl_analyser.cli sync
+python -m fpl_analyser.cli xgi --limit 20
+python -m fpl_analyser.cli squad --entry 123456
+python -m fpl_analyser.cli recommend --entry 123456 --horizon 6 --limit 20
+```
+
+Optional exact sale prices (your team only). FPL no longer authenticates `/me/` with cookies. In DevTools, open the **same** `api/me/` request, then **Request headers** → `x-api-authorization`. Copy the JWT (with or without the `Bearer ` prefix):
+
+```powershell
+Remove-Item Env:FPL_SESSION_COOKIE -ErrorAction SilentlyContinue
+$env:FPL_API_TOKEN = "eyJ..."
+python -m fpl_analyser.cli squad --entry 123456
+```
+
+Or `--api-token eyJ...`. Tokens expire after a few hours. Guest cookies (`pl_guest_id`, `cf_clearance`) are ignored. Cache directory defaults to `./data` (override with `FPL_DATA_DIR`).
+
+## Docs
+
+- [FPL API catalog](docs/fpl-api.md)
+- [Understat scraper](docs/understat.md)
+- [Expected points model](docs/expected-points.md)
+- [Transfer ranking](docs/transfers.md)
+
+Name collisions between FPL and Understat go in [data/mappings/overrides.json](data/mappings/overrides.json).

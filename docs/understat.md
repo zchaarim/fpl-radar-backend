@@ -1,0 +1,35 @@
+# Understat ingest
+
+Understat has no official API. The site CSV/JSON/XLSX export is the same dataset the tables use. After late 2025 the league page loads that data over AJAX instead of embedding `JSON.parse('\x7B...')` in HTML.
+
+Client: `fpl_analyser.clients.understat.UnderstatClient`. Scope: **EPL, current season only**. Season path uses the **start year** (`2026` → 2026/27). Config: `UNDERSTAT_LEAGUE`, `UNDERSTAT_SEASON`.
+
+Do not depend on `understatapi` / `py-understat`; they lag site changes.
+
+## League pull (`get_league_data`)
+
+1. `GET https://understat.com/league/EPL/2026` (session cookies).
+2. `GET https://understat.com/getLeagueData/EPL/2026` with `User-Agent` and `X-Requested-With: XMLHttpRequest`.
+3. JSON object with:
+   - `teams` — `{id, title, history[]}` per club. Each history row is a match: `h_a`, `xG`, `xGA`, `scored`, `missed`, …
+   - `players` — `id`, `player_name`, `team_title`, `time`, `games`, `xG`, `xA`, shots, …
+   - `dates` — season fixtures with team-level `xG` and `goals`
+
+That league dump is enough for player xGI/90 and team attack/defence (including home/away). `getTeamData` is not required for the current model.
+
+`fpl-analyser sync` caches this. `fpl-analyser xgi` prints per-90 rates after matching FPL ids. Unmatched names go in `data/mappings/overrides.json`.
+
+If AJAX is not JSON, fall back to decoding embedded `teamsData` / `playersData` / `datesData` from the league HTML (`unicode_escape` then `json.loads`).
+
+Polite delay between requests. Raw responses cache under `data/understat/` (gitignored) via `JsonCache`.
+
+## Later (not required for phase 1 sync)
+
+Same AJAX headers, typical paths used by community clients:
+
+- Team: `getTeamData/{Team_Name}/{season}` (underscore names, e.g. `Manchester_United`)
+- Player / match pages still used for shot maps and rosters
+
+## Identity
+
+`fpl_analyser.identity.match` maps FPL club names to Understat `title` and players by normalized name + club. Dual `team_title` values use the last club. Manual fixes: `data/mappings/overrides.json`. Unmatched players use FPL `expected_goals` / `expected_assists` instead of Understat xGI.
