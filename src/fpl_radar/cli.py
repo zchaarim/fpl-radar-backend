@@ -6,6 +6,7 @@ import sys
 
 from fpl_radar.clients.auth import FplAuthClient, build_auth_client
 from fpl_radar.clients.fpl import FplClient
+from fpl_radar.identity.match import identity_coverage
 from fpl_radar.ingest.sync import default_cache, load_model_context, sync_fpl, sync_understat
 from fpl_radar.squad import load_manager_squad
 from fpl_radar.transfers.rank import rank_replacements
@@ -19,12 +20,20 @@ def cmd_sync(args: argparse.Namespace) -> int:
     fpl_stats = sync_fpl(_client())
     us_stats = sync_understat()
     ctx = load_model_context(_client())
-    matched = 0
-    if ctx.features:
-        matched = len(ctx.features.players) - len(ctx.features.unmatched_players)
     print("FPL", json.dumps(fpl_stats, default=str))
     print("Understat", json.dumps(us_stats, default=str))
-    print(f"Identity player matches {matched}/{len((ctx.bootstrap.get('elements') or []))}")
+    coverage = identity_coverage(
+        ctx.bootstrap.get("elements") or [],
+        (ctx.understat_league or {}).get("players") or [],
+        ctx.player_match,
+    )
+    print(
+        "Identity "
+        f"matched {coverage['matched']}/{coverage['understat_players']} Understat players; "
+        f"FPL roster {coverage['matched']}/{coverage['fpl_players']} "
+        f"(unmatched with minutes: FPL {coverage['unmatched_fpl_with_minutes']}, "
+        f"Understat {coverage['unmatched_understat_with_minutes']})"
+    )
     return 0
 
 

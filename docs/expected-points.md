@@ -82,3 +82,15 @@ Values come from `game_settings` when present, else `fpl_radar.fpl_rules.SCORING
 | Defensive contribution (DEF: 10 CBIT; MID/FWD: 12 CBIRT) | 2, capped per match |
 
 Scoring for the model path is now complete (penalties/own goals still omitted as rare).
+
+## Accuracy gaps (not yet in the model)
+
+Identity is no longer the main leak: club aliases + in-club name matching should cover every Understat player. Remaining xP bias is mostly statistical.
+
+- **Unequal attack rates:** unmatched FPL names used to fall back to FPL `expected_goals`, which is not Understat xG. Keep Understat coverage high; do not mix the two in one ranking without a flag.
+- **No shrinkage on xG/xA/90 or team strengths.** Four games of 0.6 xG looks like a 0.60 xG/90 attacker. Home/away team splits are ~2 matches.
+- **Minutes** are `time/games` (or FPL minutes), not a playing-time model. `p_play_sixty` is a 30–70 linear heuristic. Doubles reuse the same minutes for both fixtures. News/`chance_of_playing` is only applied when FPL sets it.
+- **Fixture attack multiplier** `att × def` double-counts home advantage (home attack × away defence both include HA). Floor of 0.25 is arbitrary. CS/GC λ is independent Poisson; no scoreline correlation.
+- **DefCon, bonus, saves, cards** are not opponent-adjusted. DefCon uses a Poisson per-game λ from a per-90 rate. Bonus is a player prior, not P(finish top 3 in *this* match’s BPS). Saves ignore opposition shot volume. Cards ignore referee/opponent.
+- **Horizon** copies the same per-match xP across future GWs (no regression to mean, no set-piece share, no penalty taker). Own goals / penalty save-miss omitted.
+- **Transfers** rank 1-for-1 best-XI delta only: no hits, free transfers, captain 2×, or chip sequences.

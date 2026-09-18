@@ -32,4 +32,4 @@ Same AJAX headers, typical paths used by community clients:
 
 ## Identity
 
-`fpl_radar.identity.match` maps FPL club names to Understat `title` and players by normalized name + club. Dual `team_title` values use the last club. Manual fixes: `data/mappings/overrides.json`. Unmatched players use FPL `expected_goals` / `expected_assists` instead of Understat xGI.
+`fpl_radar.identity.match` maps clubs via canonical aliases (Man Utd / Manchester United, Spurs / Tottenham, Nott'm Forest, Hull City / Hull, …) and players by normalized name **within that club**. Matching tries full name, web name, token subsets (`Alisson Becker` ↔ `Alisson`), unique last names on the club, then a conservative fuzzy ratio. HTML entities (`O&#039;Shea`) and letters that NFKD will not fold (`Ødegaard`) are handled in `normalize_name`. Dual `team_title` values use the last club. Manual fixes: `data/mappings/overrides.json`. Unmatched players use FPL `expected_goals` / `expected_assists` instead of Understat xGI — that fallback is **not** the same metric, so coverage on players with minutes should stay high.
