@@ -104,7 +104,7 @@ class FplClient:
         self,
         bootstrap: dict[str, Any] | None = None,
     ) -> dict[int, list[dict[str, float]]]:
-        """Per player per finished GW: minutes, defcon, bps, bonus, saves."""
+        """Per player per finished GW: minutes, defcon, bps, bonus, saves, cards."""
         data = bootstrap or self.bootstrap_static()
         by_player: dict[int, list[dict[str, float]]] = {}
         for event_id in self.finished_event_ids(data):
@@ -122,6 +122,8 @@ class FplClient:
                         "bps": float(stats.get("bps") or 0),
                         "bonus": float(stats.get("bonus") or 0),
                         "saves": float(stats.get("saves") or 0),
+                        "yellow_cards": float(stats.get("yellow_cards") or 0),
+                        "red_cards": float(stats.get("red_cards") or 0),
                     }
                 )
         return by_player

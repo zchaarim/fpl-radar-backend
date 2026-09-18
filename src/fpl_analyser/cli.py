@@ -71,7 +71,7 @@ def cmd_recommend(args: argparse.Namespace) -> int:
         context=ctx,
         limit=args.limit,
     )
-    source = "minutes + xGI + CS/GC + DefCon + bonus + saves"
+    source = "minutes + xGI + CS/GC + DefCon + bonus + saves + cards"
     if options and options[0].placeholder:
         source = "placeholder xP from FPL ep_next"
     print(f"Top {len(options)} 1-for-1 options over {args.horizon} GW ({source})")

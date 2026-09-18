@@ -13,6 +13,10 @@ from fpl_analyser.fpl_rules import (
     ELEMENT_TYPE_MID,
     MIN_BONUS_CURVE_BUCKETS,
     SAVES_PRIOR_GAMES,
+    YELLOW90_DEFAULT,
+    YELLOW_PRIOR_GAMES,
+    RED90_DEFAULT,
+    RED_PRIOR_GAMES,
     defcon_threshold,
     scoring_table,
 )
@@ -77,6 +81,12 @@ class PlayerRates:
     saves_games: int = 0
     saves_hits: int = 0
     saves_source: str = "none"
+    yellow90: float = 0.0
+    red90: float = 0.0
+    yellow_p: float = 0.0
+    red_p: float = 0.0
+    yellow_games: int = 0
+    cards_source: str = "none"
 
 
 @dataclass
@@ -284,6 +294,7 @@ def build_feature_set(
         live_matches,
         scoring_table(bootstrap.get("game_settings")),
     )
+    players = attach_cards(players, fpl_players, live_matches)
     return FeatureSet(
         teams=teams,
         players=players,
@@ -690,6 +701,129 @@ def attach_saves(
             saves_games=games,
             saves_hits=hits,
             saves_source="live" if games else "season",
+        )
+    for eid, rates in rates_by_id.items():
+        if eid not in updated:
+            updated[eid] = rates
+    return updated
+
+
+def p_card_in_minutes(p90: float, minutes: float) -> float:
+    """Scale a 90-minute card probability to expected minutes."""
+    if minutes <= 0 or p90 <= 0:
+        return 0.0
+    share = minutes / 90.0
+    return 1.0 - (1.0 - min(p90, 0.999)) ** share
+
+
+def position_card90(
+    players: list[dict[str, Any]],
+    element_type: int,
+    field: str,
+    default: float,
+) -> float:
+    vals: list[float] = []
+    for player in players:
+        if int(player.get("element_type") or 0) != element_type:
+            continue
+        minutes = _f(player.get("minutes"))
+        if minutes < 180:
+            continue
+        n90 = minutes / 90.0
+        vals.append(_f(player.get(field)) / n90)
+    return sum(vals) / len(vals) if vals else default
+
+
+def live_card_record(rows: list[dict[str, float]], field: str) -> tuple[int, float, int, float]:
+    """apps, equivalent 90s, games with a card, cards per 90."""
+    eligible = [row for row in rows if (row.get("minutes") or 0) > 0]
+    if not eligible:
+        return 0, 0.0, 0, 0.0
+    minutes = sum(row.get("minutes") or 0.0 for row in eligible)
+    n90 = minutes / 90.0
+    cards = sum(row.get(field) or 0.0 for row in eligible)
+    hits = sum(1 for row in eligible if (row.get(field) or 0.0) > 0)
+    own90 = cards / n90 if n90 > 0 else 0.0
+    return len(eligible), n90, hits, own90
+
+
+def shrink_card_p(
+    n90: float,
+    apps: int,
+    hits: int,
+    own90: float,
+    pos90: float,
+    prior_games: int,
+) -> tuple[float, float]:
+    n = max(n90, 0.0)
+    k = float(max(prior_games, 1))
+    lam = (n * own90 + k * pos90) / (n + k) if (n + k) else pos90
+    from_mean = 1.0 - math.exp(-max(lam, 0.0))
+    observed = hits / apps if apps > 0 else from_mean
+    weight = n / (n + k) if (n + k) else 0.0
+    p90 = max(0.0, min(0.95, weight * observed + (1.0 - weight) * from_mean))
+    return lam, p90
+
+
+def attach_cards(
+    rates_by_id: dict[int, PlayerRates],
+    fpl_players: list[dict[str, Any]],
+    live_matches: dict[int, list[dict[str, float]]] | None,
+) -> dict[int, PlayerRates]:
+    live_matches = live_matches or {}
+    pos_y = {
+        etype: position_card90(fpl_players, etype, "yellow_cards", YELLOW90_DEFAULT[etype])
+        for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
+    }
+    pos_r = {
+        etype: position_card90(fpl_players, etype, "red_cards", RED90_DEFAULT[etype])
+        for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
+    }
+    updated: dict[int, PlayerRates] = {}
+    for player in fpl_players:
+        eid = int(player["id"])
+        rates = rates_by_id.get(eid) or fpl_player_rates(player)
+        etype = int(player.get("element_type") or 0)
+        minutes = _f(player.get("minutes"))
+        n90_season = minutes / 90.0
+        apps, n90_live, y_hits, y90_live = live_card_record(live_matches.get(eid, []), "yellow_cards")
+        _a, _n, r_hits, r90_live = live_card_record(live_matches.get(eid, []), "red_cards")
+        if n90_live > 0:
+            n90, y90, r90, n_apps = n90_live, y90_live, r90_live, apps
+            y_obs, r_obs = y_hits, r_hits
+            source = "live"
+        else:
+            n90 = n90_season
+            y90 = _f(player.get("yellow_cards")) / n90 if n90 else 0.0
+            r90 = _f(player.get("red_cards")) / n90 if n90 else 0.0
+            n_apps = int(round(n90)) if n90 else 0
+            y_obs = _i(player.get("yellow_cards"))
+            r_obs = _i(player.get("red_cards"))
+            source = "season"
+        y_lam, yellow_p = shrink_card_p(
+            n90,
+            n_apps,
+            y_obs,
+            y90,
+            pos_y.get(etype, YELLOW90_DEFAULT.get(etype, 0.12)),
+            YELLOW_PRIOR_GAMES,
+        )
+        r_lam, red_p = shrink_card_p(
+            n90,
+            n_apps,
+            r_obs,
+            r90,
+            pos_r.get(etype, RED90_DEFAULT.get(etype, 0.02)),
+            RED_PRIOR_GAMES,
+        )
+        updated[eid] = replace(
+            rates,
+            yellow90=y_lam,
+            red90=r_lam,
+            yellow_p=yellow_p,
+            red_p=red_p,
+            yellow_games=y_obs,
+            cards_source=source,
         )
     for eid, rates in rates_by_id.items():
         if eid not in updated:

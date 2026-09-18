@@ -10,6 +10,7 @@ from fpl_analyser.features import (
     expected_minutes,
     fixture_goals_against_lambda,
     fixture_multiplier,
+    p_card_in_minutes,
     p_play_sixty,
     poisson_clean_sheet,
 )
@@ -114,6 +115,8 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
     is_gk = element_type == ELEMENT_TYPE_GKP
     defcon_p = rates.defcon_p if not is_gk else 0.0
     saves_e = rates.saves_e if is_gk else 0.0
+    yellow_pts = float(table["yellow_card"])
+    red_pts = float(table["red_card"])
 
     per_event: dict[int, float] = {}
     event_break: dict[str, Any] = {}
@@ -127,6 +130,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
         gw_dc = 0.0
         gw_bonus = 0.0
         gw_saves = 0.0
+        gw_cards = 0.0
         gw_lambda = 0.0
         if not fixtures:
             per_event[int(event_id)] = 0.0
@@ -145,6 +149,9 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             dc_xp = p60 * defcon_p * defcon_pts
             bonus_xp = p60 * rates.bonus_e
             save_xp = p60 * saves_e if is_gk else 0.0
+            p_y = p_card_in_minutes(rates.yellow_p, exp_mins)
+            p_r = p_card_in_minutes(rates.red_p, exp_mins)
+            card_xp = p_y * yellow_pts + p_r * red_pts
             gw_xg += xg
             gw_xa += xa
             gw_cs += cs_xp
@@ -152,6 +159,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             gw_dc += dc_xp
             gw_bonus += bonus_xp
             gw_saves += save_xp
+            gw_cards += card_xp
             gw_lambda += lam_ga
             gw_pts += _minutes_points(exp_mins, table)
             gw_pts += xg * goal_pts
@@ -161,6 +169,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             gw_pts += dc_xp
             gw_pts += bonus_xp
             gw_pts += save_xp
+            gw_pts += card_xp
         per_event[int(event_id)] = gw_pts
         event_break[str(event_id)] = {
             "minutes": exp_mins,
@@ -175,6 +184,9 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             "defcon_p": round(defcon_p, 4),
             "bonus_xp": round(gw_bonus, 4),
             "saves_xp": round(gw_saves, 4),
+            "cards_xp": round(gw_cards, 4),
+            "yellow_p": round(p_card_in_minutes(rates.yellow_p, exp_mins), 4),
+            "red_p": round(p_card_in_minutes(rates.red_p, exp_mins), 4),
             "fixtures": len(fixtures),
         }
 
@@ -184,7 +196,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
         per_event=per_event,
         horizon_sum=sum(per_event.values()),
         breakdown={
-            "source": "xgi_minutes_cs_gc_defcon_bonus_saves",
+            "source": "xgi_minutes_cs_gc_defcon_bonus_saves_cards",
             "rate_source": rates.source,
             "xg90": rates.xg90,
             "xa90": rates.xa90,
@@ -197,6 +209,8 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             "bonus_e": rates.bonus_e,
             "saves_avg": rates.saves_avg,
             "saves_e": rates.saves_e,
+            "yellow_p": rates.yellow_p,
+            "red_p": rates.red_p,
             "events": event_break,
         },
         placeholder=False,

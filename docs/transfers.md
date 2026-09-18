@@ -20,7 +20,7 @@ Same position; not already in the squad; at most 3 per club after the swap; `sel
 
 ## Ranking
 
-For current squad and each candidate squad, compute **best XI xP each GW** (1 GK, 3–5 DEF, 2–5 MID, 1–3 FWD; bench ignored until Bench Boost). xP is minutes + opponent-adjusted xG/xA + Poisson CS/GC + shrunk DefCon + shrunk bonus (BPS + observed bonus) + GK save points. Cards still to come.
+For current squad and each candidate squad, compute **best XI xP each GW** (1 GK, 3–5 DEF, 2–5 MID, 1–3 FWD; bench ignored until Bench Boost). xP is minutes + opponent-adjusted xG/xA + Poisson CS/GC + shrunk DefCon + shrunk bonus + GK saves + shrunk yellow/red rates.
 
 - Primary: `delta = xP_horizon(new) - xP_horizon(current)`
 - Secondary: incoming player’s horizon xP (captain flag)

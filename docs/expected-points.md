@@ -2,7 +2,7 @@
 
 `fpl_analyser.xp.expected_points` has two modes:
 
-1. **Model path** when `ModelContext.features` is set: minutes, xG/xA, CS, GC, DefCon, bonus, saves.
+1. **Model path** when `ModelContext.features` is set: minutes, xG/xA, CS, GC, DefCon, bonus, saves, cards.
 2. **Placeholder** if there are no features: FPL `ep_next`.
 
 Blanks score 0; doubles sum both matches.
@@ -54,6 +54,14 @@ No fixture scaling yet — volume is the keeper’s own average.
 
 Saves xP = `P(play 60+) × saves_e`.
 
+**Cards**
+
+No x-metric. Minutes-adjusted yellow/red rates from live appearances (else season totals), shrunk toward the **position** per-90 mean. Yellows use `k = 6` equivalent 90s; reds use `k = 18` because one sending-off is not a weekly event.
+
+Blend that rate’s `P(card in 90')` with the observed share of appearances that actually had a card. Scale to expected minutes: `1 − (1 − p90)^(mins/90)`. Yellow (−1) dominates; red (−3) is a small extra.
+
+Cards xP = `P(yellow) × −1 + P(red) × −3`.
+
 ## Scoring table
 
 Values come from `game_settings` when present, else `fpl_analyser.fpl_rules.SCORING_DEFAULTS`.
@@ -73,4 +81,4 @@ Values come from `game_settings` when present, else `fpl_analyser.fpl_rules.SCOR
 | Bonus (BPS rank 1–3 in the match) | 1–3 |
 | Defensive contribution (DEF: 10 CBIT; MID/FWD: 12 CBIRT) | 2, capped per match |
 
-Next: cards.
+Scoring for the model path is now complete (penalties/own goals still omitted as rare).

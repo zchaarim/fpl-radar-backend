@@ -29,6 +29,8 @@ def test_live_match_log_reads_bps_and_bonus() -> None:
     assert log[8][0]["bps"] == 28
     assert log[8][0]["bonus"] == 2
     assert log[8][0]["saves"] == 0
+    assert log[8][0]["yellow_cards"] == 0
+    assert log[8][0]["red_cards"] == 0
 
 
 def test_http_error() -> None:
