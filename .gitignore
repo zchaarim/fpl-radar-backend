@@ -1,4 +1,6 @@
 *.env
+data/cache/
+data/understat/
 
 # Created by .ignore support plugin (hsz.mobi)
 ### Diff template

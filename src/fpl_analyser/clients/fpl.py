@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+from fpl_analyser import config
+from fpl_analyser.ingest.store import JsonCache
+
+logger = logging.getLogger(__name__)
+
+
+class FplApiError(RuntimeError):
+    pass
+
+
+class FplClient:
+    """Public Fantasy Premier League API client with optional file cache."""
+
+    def __init__(
+        self,
+        cache: JsonCache | None = None,
+        session: requests.Session | None = None,
+        base_url: str = config.FPL_BASE_URL,
+        timeout: float = 30.0,
+    ) -> None:
+        self.cache = cache
+        self.session = session or requests.Session()
+        self.session.headers.setdefault("User-Agent", config.DEFAULT_USER_AGENT)
+        if session is None:
+            retry = Retry(total=3, backoff_factor=0.3, status_forcelist=(429, 500, 502, 503, 504))
+            self.session.mount("https://", HTTPAdapter(max_retries=retry))
+        self.base_url = base_url.rstrip("/") + "/"
+        self.timeout = timeout
+
+    def _get_json(self, path: str, ttl: int | None, params: dict[str, Any] | None = None) -> Any:
+        key = path if not params else f"{path}?{sorted(params.items())}"
+        if self.cache and ttl:
+            cached = self.cache.get(key, ttl_seconds=ttl)
+            if cached is not None:
+                return cached
+        url = self.base_url + path.lstrip("/")
+        response = self.session.get(url, params=params, timeout=self.timeout)
+        if response.status_code >= 400:
+            raise FplApiError(f"GET {url} failed: {response.status_code} {response.text[:200]}")
+        data = response.json()
+        if self.cache and ttl:
+            self.cache.set(key, data)
+        return data
+
+    def bootstrap_static(self) -> dict[str, Any]:
+        return self._get_json("bootstrap-static/", config.BOOTSTRAP_TTL_SECONDS)
+
+    def fixtures(self, event: int | None = None) -> list[dict[str, Any]]:
+        params = {"event": event} if event is not None else None
+        return self._get_json("fixtures/", config.FIXTURES_TTL_SECONDS, params=params)
+
+    def element_summary(self, element_id: int) -> dict[str, Any]:
+        return self._get_json(
+            f"element-summary/{element_id}/",
+            config.ELEMENT_SUMMARY_TTL_SECONDS,
+        )
+
+    def event_live(self, event_id: int) -> dict[str, Any]:
+        return self._get_json(f"event/{event_id}/live/", config.FIXTURES_TTL_SECONDS)
+
+    def event_status(self) -> dict[str, Any]:
+        return self._get_json("event-status/", config.FIXTURES_TTL_SECONDS)
+
+    def entry(self, entry_id: int) -> dict[str, Any]:
+        return self._get_json(f"entry/{entry_id}/", config.ENTRY_TTL_SECONDS)
+
+    def entry_history(self, entry_id: int) -> dict[str, Any]:
+        return self._get_json(f"entry/{entry_id}/history/", config.ENTRY_TTL_SECONDS)
+
+    def entry_transfers(self, entry_id: int) -> list[dict[str, Any]]:
+        return self._get_json(f"entry/{entry_id}/transfers/", config.ENTRY_TTL_SECONDS)
+
+    def entry_picks(self, entry_id: int, event_id: int) -> dict[str, Any]:
+        return self._get_json(
+            f"entry/{entry_id}/event/{event_id}/picks/",
+            config.ENTRY_TTL_SECONDS,
+        )
+
+    def set_piece_notes(self) -> dict[str, Any]:
+        return self._get_json("team/set-piece-notes/", config.BOOTSTRAP_TTL_SECONDS)
+
+    def players_by_id(self, bootstrap: dict[str, Any] | None = None) -> dict[int, dict[str, Any]]:
+        data = bootstrap or self.bootstrap_static()
+        return {int(p["id"]): p for p in data.get("elements", [])}
+
+    def teams_by_id(self, bootstrap: dict[str, Any] | None = None) -> dict[int, dict[str, Any]]:
+        data = bootstrap or self.bootstrap_static()
+        return {int(t["id"]): t for t in data.get("teams", [])}

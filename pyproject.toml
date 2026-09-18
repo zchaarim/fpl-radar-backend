@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fpl-analyser"
+version = "0.1.0"
+description = "FPL transfer analysis backend: ingest, expected points interfaces, and ranked transfer options."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "requests>=2.32",
+  "pydantic>=2.7",
+  "pandas>=2.2",
+  "beautifulsoup4>=4.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+fpl-analyser = "fpl_analyser.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
