@@ -111,7 +111,9 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
     share_mins = exp_mins / 90.0
     p60 = p_play_sixty(exp_mins)
     gets_gc = element_type in {ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF}
-    defcon_p = rates.defcon_p if element_type != ELEMENT_TYPE_GKP else 0.0
+    is_gk = element_type == ELEMENT_TYPE_GKP
+    defcon_p = rates.defcon_p if not is_gk else 0.0
+    saves_e = rates.saves_e if is_gk else 0.0
 
     per_event: dict[int, float] = {}
     event_break: dict[str, Any] = {}
@@ -124,6 +126,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
         gw_gc = 0.0
         gw_dc = 0.0
         gw_bonus = 0.0
+        gw_saves = 0.0
         gw_lambda = 0.0
         if not fixtures:
             per_event[int(event_id)] = 0.0
@@ -141,12 +144,14 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             gc_xp = p60 * expected_goals_conceded_points(lam_ga, per=gc_per, points_per=gc_pts) if gets_gc else 0.0
             dc_xp = p60 * defcon_p * defcon_pts
             bonus_xp = p60 * rates.bonus_e
+            save_xp = p60 * saves_e if is_gk else 0.0
             gw_xg += xg
             gw_xa += xa
             gw_cs += cs_xp
             gw_gc += gc_xp
             gw_dc += dc_xp
             gw_bonus += bonus_xp
+            gw_saves += save_xp
             gw_lambda += lam_ga
             gw_pts += _minutes_points(exp_mins, table)
             gw_pts += xg * goal_pts
@@ -155,6 +160,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             gw_pts += gc_xp
             gw_pts += dc_xp
             gw_pts += bonus_xp
+            gw_pts += save_xp
         per_event[int(event_id)] = gw_pts
         event_break[str(event_id)] = {
             "minutes": exp_mins,
@@ -168,6 +174,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             "defcon_xp": round(gw_dc, 4),
             "defcon_p": round(defcon_p, 4),
             "bonus_xp": round(gw_bonus, 4),
+            "saves_xp": round(gw_saves, 4),
             "fixtures": len(fixtures),
         }
 
@@ -177,7 +184,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
         per_event=per_event,
         horizon_sum=sum(per_event.values()),
         breakdown={
-            "source": "xgi_minutes_cs_gc_defcon_bonus",
+            "source": "xgi_minutes_cs_gc_defcon_bonus_saves",
             "rate_source": rates.source,
             "xg90": rates.xg90,
             "xa90": rates.xa90,
@@ -188,6 +195,8 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             "bps_avg": rates.bps_avg,
             "bonus_avg": rates.bonus_avg,
             "bonus_e": rates.bonus_e,
+            "saves_avg": rates.saves_avg,
+            "saves_e": rates.saves_e,
             "events": event_break,
         },
         placeholder=False,

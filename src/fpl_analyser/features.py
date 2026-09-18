@@ -12,7 +12,9 @@ from fpl_analyser.fpl_rules import (
     ELEMENT_TYPE_GKP,
     ELEMENT_TYPE_MID,
     MIN_BONUS_CURVE_BUCKETS,
+    SAVES_PRIOR_GAMES,
     defcon_threshold,
+    scoring_table,
 )
 from fpl_analyser.identity.match import load_overrides, match_players, match_teams
 
@@ -70,6 +72,11 @@ class PlayerRates:
     bonus_e: float = 0.0
     bonus_games: int = 0
     bonus_source: str = "none"
+    saves_avg: float = 0.0
+    saves_e: float = 0.0
+    saves_games: int = 0
+    saves_hits: int = 0
+    saves_source: str = "none"
 
 
 @dataclass
@@ -271,6 +278,12 @@ def build_feature_set(
         }
     players = attach_defcon(players, fpl_players, live_defcon)
     players = attach_bonus(players, fpl_players, live_matches)
+    players = attach_saves(
+        players,
+        fpl_players,
+        live_matches,
+        scoring_table(bootstrap.get("game_settings")),
+    )
     return FeatureSet(
         teams=teams,
         players=players,
@@ -567,6 +580,116 @@ def attach_bonus(
             bonus_e=bonus_e,
             bonus_games=games,
             bonus_source="live+bps" if games else "season+bps",
+        )
+    for eid, rates in rates_by_id.items():
+        if eid not in updated:
+            updated[eid] = rates
+    return updated
+
+
+def expected_save_points(
+    lam: float,
+    per: int = 3,
+    points_per: float = 1.0,
+    k_max: int = 15,
+) -> float:
+    """E[floor(saves / per) * points] under Poisson(lam). 2.0 avg saves is not 0.67 pts."""
+    total = 0.0
+    for k in range(k_max + 1):
+        total += (k // per) * poisson_pmf(k, lam)
+    return total * points_per
+
+
+def position_saves_pg(players: list[dict[str, Any]]) -> float:
+    vals: list[float] = []
+    for player in players:
+        if int(player.get("element_type") or 0) != ELEMENT_TYPE_GKP:
+            continue
+        minutes = _f(player.get("minutes"))
+        if minutes < 180:
+            continue
+        games = max(_f(player.get("starts")), minutes / 90.0)
+        if games < 2:
+            continue
+        vals.append(_f(player.get("saves")) / games)
+    return sum(vals) / len(vals) if vals else 3.0
+
+
+def live_saves_record(
+    rows: list[dict[str, float]],
+    per: int = 3,
+) -> tuple[int, float, float, int]:
+    eligible = [row for row in rows if (row.get("minutes") or 0) >= 60]
+    if not eligible:
+        return 0, 0.0, 0.0, 0
+    n = len(eligible)
+    mean_saves = sum(row.get("saves") or 0.0 for row in eligible) / n
+    mean_pts = sum(int((row.get("saves") or 0.0) // per) for row in eligible) / n
+    hits = sum(1 for row in eligible if (row.get("saves") or 0.0) >= per)
+    return n, mean_saves, mean_pts, hits
+
+
+def shrink_saves_e(
+    games: int,
+    observed_pts: float,
+    own_lam: float,
+    pos_lam: float,
+    per: int = 3,
+    points_per: float = 1.0,
+    prior_games: int = SAVES_PRIOR_GAMES,
+) -> float:
+    n = max(games, 0)
+    k = max(prior_games, 1)
+    lam = (n * own_lam + k * pos_lam) / (n + k)
+    from_mean = expected_save_points(lam, per=per, points_per=points_per)
+    observed = observed_pts if n > 0 else from_mean
+    weight = n / (n + k)
+    return max(0.0, weight * observed + (1.0 - weight) * from_mean)
+
+
+def attach_saves(
+    rates_by_id: dict[int, PlayerRates],
+    fpl_players: list[dict[str, Any]],
+    live_matches: dict[int, list[dict[str, float]]] | None,
+    table: dict[str, int | float] | None = None,
+) -> dict[int, PlayerRates]:
+    live_matches = live_matches or {}
+    table = table or scoring_table()
+    per = int(table["save_per"])
+    points_per = float(table["save_points"])
+    pos_lam = position_saves_pg(fpl_players)
+    updated: dict[int, PlayerRates] = {}
+    for player in fpl_players:
+        eid = int(player["id"])
+        rates = rates_by_id.get(eid) or fpl_player_rates(player)
+        if int(player.get("element_type") or 0) != ELEMENT_TYPE_GKP:
+            updated[eid] = replace(rates, saves_e=0.0, saves_source="outfield")
+            continue
+        minutes = _f(player.get("minutes"))
+        starts = max(_f(player.get("starts")), minutes / 90.0)
+        season_avg = _f(player.get("saves")) / max(starts, 1.0) if starts else 0.0
+        games, mean_saves, mean_pts, hits = live_saves_record(
+            live_matches.get(eid, []),
+            per=per,
+        )
+        own = mean_saves if games else season_avg
+        observed = mean_pts if games else expected_save_points(own, per=per, points_per=points_per)
+        n = games if games else (int(starts) if own else 0)
+        saves_e = shrink_saves_e(
+            n,
+            observed,
+            own,
+            pos_lam,
+            per=per,
+            points_per=points_per,
+        )
+        updated[eid] = replace(
+            rates,
+            saves_avg=own,
+            saves_e=saves_e,
+            saves_games=games,
+            saves_hits=hits,
+            saves_source="live" if games else "season",
         )
     for eid, rates in rates_by_id.items():
         if eid not in updated:

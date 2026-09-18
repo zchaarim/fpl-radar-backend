@@ -28,6 +28,7 @@ def test_live_match_log_reads_bps_and_bonus() -> None:
     log = client.live_match_log()
     assert log[8][0]["bps"] == 28
     assert log[8][0]["bonus"] == 2
+    assert log[8][0]["saves"] == 0
 
 
 def test_http_error() -> None:

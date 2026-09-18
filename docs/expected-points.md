@@ -2,7 +2,7 @@
 
 `fpl_analyser.xp.expected_points` has two modes:
 
-1. **Model path** when `ModelContext.features` is set: minutes, xG/xA, CS, GC, DefCon, bonus.
+1. **Model path** when `ModelContext.features` is set: minutes, xG/xA, CS, GC, DefCon, bonus, saves.
 2. **Placeholder** if there are no features: FPL `ep_next`.
 
 Blanks score 0; doubles sum both matches.
@@ -44,6 +44,16 @@ Match bonus (0–3) from BPS rank. Two signals, both shrunk with `k = 6`:
 
 Bonus xP = `P(play 60+) × bonus_e`.
 
+**Saves (GK only)**
+
+1 point per 3 saves (`⌊saves / 3⌋`). Outfield is 0.
+
+Do **not** use `avg_saves / 3`: 2.0 saves/game is usually 0 points. Shrink mean saves toward the GK mean (`k = 6`), convert with Poisson to `E[⌊saves/3⌋]`, and blend with the observed mean save points (and thus how often they actually hit 3 / 6 / 9) from live GWs. Season totals only give the Poisson-from-mean path.
+
+No fixture scaling yet — volume is the keeper’s own average.
+
+Saves xP = `P(play 60+) × saves_e`.
+
 ## Scoring table
 
 Values come from `game_settings` when present, else `fpl_analyser.fpl_rules.SCORING_DEFAULTS`.
@@ -63,4 +73,4 @@ Values come from `game_settings` when present, else `fpl_analyser.fpl_rules.SCOR
 | Bonus (BPS rank 1–3 in the match) | 1–3 |
 | Defensive contribution (DEF: 10 CBIT; MID/FWD: 12 CBIRT) | 2, capped per match |
 
-Next: saves and cards.
+Next: cards.
