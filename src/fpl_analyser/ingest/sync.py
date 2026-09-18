@@ -25,11 +25,15 @@ def sync_fpl(client: FplClient | None = None) -> dict:
     fixtures = client.fixtures()
     status = client.event_status()
     notes = client.set_piece_notes()
+    live_gws = client.finished_event_ids(bootstrap)
+    for event_id in live_gws:
+        client.event_live(event_id)
     return {
         "players": len(bootstrap.get("elements") or []),
         "teams": len(bootstrap.get("teams") or []),
         "fixtures": len(fixtures),
         "event_status": status,
+        "live_gameweeks": len(live_gws),
         "set_piece_teams": len((notes.get("teams") if isinstance(notes, dict) else None) or notes or []),
     }
 
@@ -74,7 +78,7 @@ def load_model_context(fpl_client: FplClient | None = None) -> ModelContext:
         bootstrap.get("teams") or [],
         overrides,
     )
-    features = build_feature_set(bootstrap, understat)
+    features = build_feature_set(bootstrap, understat, client.live_defcon_log(bootstrap))
     return ModelContext(
         bootstrap=bootstrap,
         fixtures=fixtures,

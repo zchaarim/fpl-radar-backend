@@ -2,10 +2,10 @@
 
 `fpl_analyser.xp.expected_points` has two modes:
 
-1. **Model path** when `ModelContext.features` (or `understat_league`) is set: minutes, xG/xA, clean sheets, goals conceded.
-2. **Placeholder** if there are no features: FPL `ep_next` (`placeholder=True`).
+1. **Model path** when `ModelContext.features` is set: minutes, xG/xA, CS, GC, DefCon.
+2. **Placeholder** if there are no features: FPL `ep_next`.
 
-DefCon, bonus, saves, and cards are not in yet.
+Bonus, saves, and cards are not in yet.
 
 ## Per fixture
 
@@ -15,18 +15,27 @@ Blanks score 0; doubles sum both matches.
 
 - Expected minutes from Understat `time/games` (else FPL minutes), scaled by availability.
 - xG/90 and xA/90 from Understat; unmatched players use FPL `expected_goals` / `expected_assists`.
-- Attack multiplier = player-team attack × opposition defensive weakness (home/away). Strengths blend actual GF/GA and Understat xG/xGA vs league average.
+- Attack multiplier = player-team attack × opposition defensive weakness (home/away).
 - `E[goals] = xG90 × (mins/90) × multiplier` (same for assists).
 
 **Clean sheets and goals conceded**
 
-- Goals the player's team concedes ~ Poisson(`λ`), where `λ = league_xG/game × opponent_attack × team_defence_weakness` (home/away).
-- `P(CS) = P(play 60+) × e^{-λ}`. FPL only awards CS (and GC) if the player reaches 60 minutes.
-- CS points: 4 GK/DEF, 1 MID, 0 FWD.
-- GK/DEF GC: `P(play 60+) × E[⌊goals/2⌋] × -1`.
-- `P(play 60+)` ramps from 0 at 30 minutes to 1 at 70.
+- Conceded goals ~ Poisson(`λ`) with `λ = league_xG/game × opponent_attack × team_defence_weakness`.
+- CS/GC require 60+ minutes. CS: 4 GK/DEF, 1 MID, 0 FWD. GC: GK/DEF `-⌊goals/2⌋`.
 
-Inspect attacking rates with `fpl-analyser xgi`. Transfer recommend uses this full xP.
+**DefCon**
+
+Outfield only. DEF need 10 CBIT; MID/FWD need 12 CBIRT; 2 points, once per match.
+
+`P(hit)` is **not** raw hit rate. It shrinks:
+
+1. Own mean actions/90 (and live-game mean) toward the **position** mean (`k = 6` games).
+2. Convert that shrunk mean to `P(actions ≥ threshold)` with Poisson — 9/10 is not 2 points.
+3. Blend that with the **observed** 60+ minute hit frequency, again with `k = 6`.
+
+So 1/1 hits does not become 2.0 xP; 16/20 with a high average stays high. GWs come from `event/{gw}/live/` (finished weeks only). If live stats are missing, Poisson-from-mean vs the position prior is used.
+
+DefCon xP = `P(play 60+) × P(hit) × 2`.
 
 ## Scoring table
 
@@ -47,4 +56,4 @@ Values come from `game_settings` when present, else `fpl_analyser.fpl_rules.SCOR
 | Bonus (BPS rank 1–3 in the match) | 1–3 |
 | Defensive contribution (DEF: 10 CBIT; MID/FWD: 12 CBIRT) | 2, capped per match |
 
-Next: DefCon, then saves and bonus.
+Next: saves and bonus.

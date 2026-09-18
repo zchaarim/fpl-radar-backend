@@ -95,3 +95,26 @@ class FplClient:
     def teams_by_id(self, bootstrap: dict[str, Any] | None = None) -> dict[int, dict[str, Any]]:
         data = bootstrap or self.bootstrap_static()
         return {int(t["id"]): t for t in data.get("teams", [])}
+
+    def finished_event_ids(self, bootstrap: dict[str, Any] | None = None) -> list[int]:
+        data = bootstrap or self.bootstrap_static()
+        return [int(event["id"]) for event in data.get("events") or [] if event.get("finished")]
+
+    def live_defcon_log(
+        self,
+        bootstrap: dict[str, Any] | None = None,
+    ) -> dict[int, list[tuple[int, float]]]:
+        """Per player list of (minutes, defensive_contribution) from finished GW live stats."""
+        data = bootstrap or self.bootstrap_static()
+        by_player: dict[int, list[tuple[int, float]]] = {}
+        for event_id in self.finished_event_ids(data):
+            live = self.event_live(event_id)
+            for element in live.get("elements") or []:
+                stats = element.get("stats") or {}
+                if "defensive_contribution" not in stats:
+                    continue
+                pid = int(element["id"])
+                minutes = int(stats.get("minutes") or 0)
+                actions = float(stats.get("defensive_contribution") or 0)
+                by_player.setdefault(pid, []).append((minutes, actions))
+        return by_player

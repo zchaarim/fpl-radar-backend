@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
+from fpl_analyser.fpl_rules import (
+    DEFCON_PRIOR_GAMES,
+    ELEMENT_TYPE_DEF,
+    ELEMENT_TYPE_FWD,
+    ELEMENT_TYPE_MID,
+    defcon_threshold,
+)
 from fpl_analyser.identity.match import load_overrides, match_players, match_teams
 
 
@@ -50,6 +57,11 @@ class PlayerRates:
     xa90: float
     xgi90: float
     source: str
+    defcon90: float = 0.0
+    defcon_games: int = 0
+    defcon_hits: int = 0
+    defcon_p: float = 0.0
+    defcon_source: str = "none"
 
 
 @dataclass
@@ -208,6 +220,7 @@ def expected_minutes(player: dict[str, Any], rates: PlayerRates) -> float:
 def build_feature_set(
     bootstrap: dict[str, Any],
     understat_league: dict[str, Any] | None,
+    live_defcon: dict[int, list[tuple[int, float]]] | None = None,
 ) -> FeatureSet:
     fpl_teams = bootstrap.get("teams") or []
     fpl_players = bootstrap.get("elements") or []
@@ -244,7 +257,7 @@ def build_feature_set(
 
     return FeatureSet(
         teams=teams,
-        players=players,
+        players=attach_defcon(players, fpl_players, live_defcon),
         league_xg_pg=league_xg,
         unmatched_players=unmatched,
     )
@@ -317,3 +330,98 @@ def p_play_sixty(exp_mins: float) -> float:
     if exp_mins <= 30:
         return 0.0
     return (exp_mins - 30.0) / 40.0
+
+
+def poisson_tail(threshold: int, lam: float) -> float:
+    """P(X >= threshold) for X ~ Poisson(lam)."""
+    if threshold <= 0:
+        return 1.0
+    return max(0.0, min(1.0, 1.0 - sum(poisson_pmf(k, lam) for k in range(threshold))))
+
+
+def position_defcon90(players: list[dict[str, Any]], element_type: int) -> float:
+    rates = []
+    for player in players:
+        if int(player.get("element_type") or 0) != element_type:
+            continue
+        if _f(player.get("minutes")) < 180:
+            continue
+        rate = _f(player.get("defensive_contribution_per_90"))
+        if rate > 0:
+            rates.append(rate)
+    return sum(rates) / len(rates) if rates else 8.0
+
+
+def live_defcon_record(appearances: list[tuple[int, float]], threshold: int) -> tuple[int, int, float]:
+    """Eligible 60+ minute games, threshold hits, mean actions in those games."""
+    eligible = [(m, a) for m, a in appearances if m >= 60]
+    if not eligible:
+        return 0, 0, 0.0
+    hits = sum(1 for _m, actions in eligible if actions >= threshold)
+    mean = sum(a for _m, a in eligible) / len(eligible)
+    return len(eligible), hits, mean
+
+
+def shrink_defcon_p(
+    games: int,
+    hits: int,
+    own_lambda: float,
+    pos_lambda: float,
+    threshold: int,
+    prior_games: int = DEFCON_PRIOR_GAMES,
+) -> float:
+    """Blend observed hit rate with Poisson(average), shrunk toward the position mean.
+
+    Small samples cannot sit at 100% just because they cleared the threshold once.
+    """
+    n = max(games, 0)
+    k = max(prior_games, 1)
+    lam = (n * own_lambda + k * pos_lambda) / (n + k)
+    from_mean = poisson_tail(threshold, lam)
+    observed = hits / n if n > 0 else from_mean
+    weight = n / (n + k)
+    return max(0.0, min(1.0, weight * observed + (1.0 - weight) * from_mean))
+
+
+def attach_defcon(
+    rates_by_id: dict[int, PlayerRates],
+    fpl_players: list[dict[str, Any]],
+    live_defcon: dict[int, list[tuple[int, float]]] | None,
+) -> dict[int, PlayerRates]:
+    live_defcon = live_defcon or {}
+    pos_lam = {
+        etype: position_defcon90(fpl_players, etype)
+        for etype in (ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
+    }
+    updated: dict[int, PlayerRates] = {}
+    for player in fpl_players:
+        eid = int(player["id"])
+        rates = rates_by_id.get(eid) or fpl_player_rates(player)
+        threshold = defcon_threshold(int(player.get("element_type") or 0))
+        if threshold is None:
+            updated[eid] = replace(rates, defcon_p=0.0, defcon_source="gk")
+            continue
+        own90 = _f(player.get("defensive_contribution_per_90"))
+        games, hits, mean_actions = live_defcon_record(live_defcon.get(eid, []), threshold)
+        if own90 <= 0:
+            own90 = mean_actions
+        p_hit = shrink_defcon_p(
+            games,
+            hits,
+            own90,
+            pos_lam.get(int(player.get("element_type") or 0), 8.0),
+            threshold,
+        )
+        source = "live+mean" if games else "mean"
+        updated[eid] = replace(
+            rates,
+            defcon90=own90,
+            defcon_games=games,
+            defcon_hits=hits,
+            defcon_p=p_hit,
+            defcon_source=source,
+        )
+    for eid, rates in rates_by_id.items():
+        if eid not in updated:
+            updated[eid] = rates
+    return updated

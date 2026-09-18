@@ -39,6 +39,15 @@ ELEMENT_TYPE_FWD = 4
 MAX_PLAYERS_PER_CLUB = 3
 SQUAD_SIZE = 15
 STARTING_XI = 11
+DEFCON_PRIOR_GAMES = 6
+
+
+def defcon_threshold(element_type: int) -> int | None:
+    if element_type == ELEMENT_TYPE_DEF:
+        return int(SCORING_DEFAULTS["defcon_def_threshold"])
+    if element_type in {ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD}:
+        return int(SCORING_DEFAULTS["defcon_mid_fwd_threshold"])
+    return None
 
 
 def sell_on_fee(game_settings: dict[str, Any] | None) -> float:

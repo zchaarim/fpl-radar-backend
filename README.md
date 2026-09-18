@@ -1,6 +1,6 @@
 # FPL analyser
 
-Python backend for Fantasy Premier League transfer analysis: ingest public FPL + Understat xGI, reconstruct a manager’s squad, and rank 1-for-1 transfers. xP currently uses minutes, opponent-adjusted xG/xA, Poisson clean sheets, and goals conceded (not DefCon/bonus/saves yet).
+Python backend for Fantasy Premier League transfer analysis: ingest public FPL + Understat xGI, reconstruct a manager’s squad, and rank 1-for-1 transfers. xP currently uses minutes, opponent-adjusted xG/xA, Poisson CS/GC, and shrunk DefCon (not bonus/saves yet).
 
 ## Setup
 
