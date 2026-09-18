@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 
-from fpl_analyser.clients.auth import FplAuthClient, load_session_cookie
+from fpl_analyser.clients.auth import FplAuthClient, build_auth_client
 from fpl_analyser.clients.fpl import FplClient
 from fpl_analyser.ingest.store import JsonCache
 from fpl_analyser.ingest.sync import default_cache, sync_fpl, sync_understat
@@ -26,10 +26,10 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
 
 def _auth(args: argparse.Namespace) -> FplAuthClient | None:
-    cookie = load_session_cookie(args.session_cookie)
-    if not cookie:
-        return None
-    return FplAuthClient(cookie)
+    return build_auth_client(
+        api_token=getattr(args, "api_token", None),
+        session_cookie=getattr(args, "session_cookie", None),
+    )
 
 
 def cmd_squad(args: argparse.Namespace) -> int:
@@ -91,7 +91,8 @@ def build_parser() -> argparse.ArgumentParser:
     squad = sub.add_parser("squad", help="Show reconstructed manager squad")
     squad.add_argument("--entry", type=int, required=True)
     squad.add_argument("--bank", type=float, default=None, help="Override remaining budget in millions")
-    squad.add_argument("--session-cookie", default=None)
+    squad.add_argument("--api-token", default=None, help="Bearer token from x-api-authorization")
+    squad.add_argument("--session-cookie", default=None, help="Legacy pl_profile cookie if still present")
     squad.set_defaults(func=cmd_squad)
 
     rec = sub.add_parser("recommend", help="Rank 1-for-1 transfers (placeholder xP)")
@@ -99,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--horizon", type=int, default=1)
     rec.add_argument("--limit", type=int, default=20)
     rec.add_argument("--bank", type=float, default=None)
+    rec.add_argument("--api-token", default=None)
     rec.add_argument("--session-cookie", default=None)
     rec.set_defaults(func=cmd_recommend)
     return parser

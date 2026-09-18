@@ -38,7 +38,11 @@ def test_auth_prices_preferred() -> None:
             },
         }
     )
-    auth = FplAuthClient("cookie", session=session, base_url="https://fantasy.premierleague.com/api/")
+    auth = FplAuthClient(
+        api_token="tok",
+        session=session,
+        base_url="https://fantasy.premierleague.com/api/",
+    )
     client = client_from_routes(routes)
     squad = load_manager_squad(client, 99, auth_client=auth)
     assert squad.authenticated

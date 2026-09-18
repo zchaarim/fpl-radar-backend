@@ -62,7 +62,11 @@ Set-piece taker notes per club (pens / FK / corners) for later xG share.
 
 ### Authenticated (optional)
 
-Session cookie via `FPL_SESSION_COOKIE` or `--session-cookie` (copy the `Cookie` header from DevTools after logging into fantasy.premierleague.com). Cookie-in is v1; email/password login is not implemented.
+FPL login is PingOne OIDC. Private endpoints expect header `X-API-Authorization: Bearer <access_token>`, not `pl_profile` cookies. Copy `x-api-authorization` from a logged-in `api/me/` or `api/my-team/` request. Env `FPL_API_TOKEN` or CLI `--api-token`. Tokens expire in hours.
+
+Guest Cookie values (`pl_guest_id`, Cloudflare, analytics) are ignored so they do not block the public squad path.
+
+Legacy `pl_profile` cookies still work if present (`FPL_SESSION_COOKIE` / `--session-cookie`).
 
 - `me/` — `FplAuthClient.me` — logged-in manager; `player.entry` must match the requested team id
 - `my-team/{entry_id}/` — `FplAuthClient.my_team` — `purchase_price`, `selling_price`, live `transfers.bank`, chips

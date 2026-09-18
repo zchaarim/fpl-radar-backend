@@ -19,6 +19,7 @@ DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (compatible; fpl-analyser/0.1; +https://github.com/fpl_bot)"
 )
 SESSION_COOKIE_ENV = "FPL_SESSION_COOKIE"
+API_TOKEN_ENV = "FPL_API_TOKEN"
 
 BOOTSTRAP_TTL_SECONDS = 60 * 60
 FIXTURES_TTL_SECONDS = 60 * 60
