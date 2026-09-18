@@ -1,6 +1,6 @@
 # Expected points
 
-`fpl_analyser.xp.expected_points` has two modes:
+`fpl_radar.xp.expected_points` has two modes:
 
 1. **Model path** when `ModelContext.features` is set: minutes, xG/xA, CS, GC, DefCon, bonus, saves, cards.
 2. **Placeholder** if there are no features: FPL `ep_next`.
@@ -64,7 +64,7 @@ Cards xP = `P(yellow) × −1 + P(red) × −3`.
 
 ## Scoring table
 
-Values come from `game_settings` when present, else `fpl_analyser.fpl_rules.SCORING_DEFAULTS`.
+Values come from `game_settings` when present, else `fpl_radar.fpl_rules.SCORING_DEFAULTS`.
 
 | Event | Points (typical) |
 | --- | --- |

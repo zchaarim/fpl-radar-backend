@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from fpl_analyser.fpl_rules import (
+from fpl_radar.fpl_rules import (
     BONUS_PRIOR_GAMES,
     DEFCON_PRIOR_GAMES,
     ELEMENT_TYPE_DEF,
@@ -20,7 +20,7 @@ from fpl_analyser.fpl_rules import (
     defcon_threshold,
     scoring_table,
 )
-from fpl_analyser.identity.match import load_overrides, match_players, match_teams
+from fpl_radar.identity.match import load_overrides, match_players, match_teams
 
 
 def _f(value: Any) -> float:

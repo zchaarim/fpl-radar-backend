@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from fpl_analyser.fpl_rules import (
+from fpl_radar.fpl_rules import (
     ELEMENT_TYPE_DEF,
     ELEMENT_TYPE_FWD,
     ELEMENT_TYPE_GKP,
@@ -11,8 +11,8 @@ from fpl_analyser.fpl_rules import (
     MAX_PLAYERS_PER_CLUB,
     STARTING_XI,
 )
-from fpl_analyser.models import ManagerSquad, TransferOption
-from fpl_analyser.xp.model import ModelContext, expected_points
+from fpl_radar.models import ManagerSquad, TransferOption
+from fpl_radar.xp.model import ModelContext, expected_points
 
 
 def club_counts(team_ids: list[int]) -> Counter[int]:

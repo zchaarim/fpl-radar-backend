@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fpl_analyser.identity.match import match_players, match_teams, normalize_name
+from fpl_radar.identity.match import match_players, match_teams, normalize_name
 
 
 def test_normalize_name() -> None:

@@ -16,7 +16,7 @@ UNDERSTAT_LEAGUE = "EPL"
 UNDERSTAT_SEASON = 2026
 
 DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (compatible; fpl-analyser/0.1; +https://github.com/fpl_bot)"
+    "Mozilla/5.0 (compatible; fpl-radar-backend/0.1; +https://github.com/zchaarim/fpl-radar-backend)"
 )
 SESSION_COOKIE_ENV = "FPL_SESSION_COOKIE"
 API_TOKEN_ENV = "FPL_API_TOKEN"

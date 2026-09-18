@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from fpl_analyser.features import (
+from fpl_radar.features import (
     FeatureSet,
     build_feature_set,
     expected_goals_conceded_points,
@@ -14,14 +14,14 @@ from fpl_analyser.features import (
     p_play_sixty,
     poisson_clean_sheet,
 )
-from fpl_analyser.fpl_rules import (
+from fpl_radar.fpl_rules import (
     ELEMENT_TYPE_DEF,
     ELEMENT_TYPE_FWD,
     ELEMENT_TYPE_GKP,
     ELEMENT_TYPE_MID,
     scoring_table,
 )
-from fpl_analyser.models import PlayerXp
+from fpl_radar.models import PlayerXp
 
 
 @dataclass
@@ -97,7 +97,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
     table = scoring_table(context.bootstrap.get("game_settings"))
     rates = features.players.get(int(player_id))
     if rates is None:
-        from fpl_analyser.features import fpl_player_rates
+        from fpl_radar.features import fpl_player_rates
 
         rates = fpl_player_rates(player)
     exp_mins = expected_minutes(player, rates)

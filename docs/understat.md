@@ -2,7 +2,7 @@
 
 Understat has no official API. The site CSV/JSON/XLSX export is the same dataset the tables use. After late 2025 the league page loads that data over AJAX instead of embedding `JSON.parse('\x7B...')` in HTML.
 
-Client: `fpl_analyser.clients.understat.UnderstatClient`. Scope: **EPL, current season only**. Season path uses the **start year** (`2026` → 2026/27). Config: `UNDERSTAT_LEAGUE`, `UNDERSTAT_SEASON`.
+Client: `fpl_radar.clients.understat.UnderstatClient`. Scope: **EPL, current season only**. Season path uses the **start year** (`2026` → 2026/27). Config: `UNDERSTAT_LEAGUE`, `UNDERSTAT_SEASON`.
 
 Do not depend on `understatapi` / `py-understat`; they lag site changes.
 
@@ -17,7 +17,7 @@ Do not depend on `understatapi` / `py-understat`; they lag site changes.
 
 That league dump is enough for player xGI/90 and team attack/defence (including home/away). `getTeamData` is not required for the current model.
 
-`fpl-analyser sync` caches this. `fpl-analyser xgi` prints per-90 rates after matching FPL ids. Unmatched names go in `data/mappings/overrides.json`.
+`fpl-radar-backend sync` caches this. `fpl-radar-backend xgi` prints per-90 rates after matching FPL ids. Unmatched names go in `data/mappings/overrides.json`.
 
 If AJAX is not JSON, fall back to decoding embedded `teamsData` / `playersData` / `datesData` from the league HTML (`unicode_escape` then `json.loads`).
 
@@ -32,4 +32,4 @@ Same AJAX headers, typical paths used by community clients:
 
 ## Identity
 
-`fpl_analyser.identity.match` maps FPL club names to Understat `title` and players by normalized name + club. Dual `team_title` values use the last club. Manual fixes: `data/mappings/overrides.json`. Unmatched players use FPL `expected_goals` / `expected_assists` instead of Understat xGI.
+`fpl_radar.identity.match` maps FPL club names to Understat `title` and players by normalized name + club. Dual `team_title` values use the last club. Manual fixes: `data/mappings/overrides.json`. Unmatched players use FPL `expected_goals` / `expected_assists` instead of Understat xGI.

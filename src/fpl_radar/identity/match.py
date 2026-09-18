@@ -6,7 +6,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from fpl_analyser import config
+from fpl_radar import config
 
 
 def normalize_name(value: str) -> str:

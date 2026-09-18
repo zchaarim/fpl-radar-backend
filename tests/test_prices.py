@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fpl_analyser.fpl_rules import estimated_selling_price, start_price
+from fpl_radar.fpl_rules import estimated_selling_price, start_price
 
 
 def test_sell_price_rise_floored() -> None:

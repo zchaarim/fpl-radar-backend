@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from fpl_analyser.clients.auth import FplAuthClient
-from fpl_analyser.models import PriceSource
-from fpl_analyser.squad import load_manager_squad, purchase_ledger
+from fpl_radar.clients.auth import FplAuthClient
+from fpl_radar.models import PriceSource
+from fpl_radar.squad import load_manager_squad, purchase_ledger
 from tests.conftest import FakeSession, client_from_routes, public_routes
 from tests.fixtures import bootstrap_sample
 

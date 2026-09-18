@@ -16,7 +16,7 @@ IDs:
 
 Prices are integers in tenths of a million (`105` = £10.5m). `now_cost` on `bootstrap-static` is the **current buy price**, updated when FPL runs overnight price changes.
 
-Client: `fpl_analyser.clients.fpl.FplClient` (public). Auth: `fpl_analyser.clients.auth.FplAuthClient`. Do not send the session cookie on public fetches.
+Client: `fpl_radar.clients.fpl.FplClient` (public). Auth: `fpl_radar.clients.auth.FplAuthClient`. Do not send the session cookie on public fetches.
 
 ## Implemented
 

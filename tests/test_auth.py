@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fpl_analyser.clients.auth import (
+from fpl_radar.clients.auth import (
     AuthError,
     FplAuthClient,
     build_auth_client,

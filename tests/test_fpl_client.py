@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fpl_analyser.clients.fpl import FplApiError
+from fpl_radar.clients.fpl import FplApiError
 from tests.conftest import FakeResponse, client_from_routes, public_routes
 
 
