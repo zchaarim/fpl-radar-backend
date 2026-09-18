@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from fpl_analyser.features import shrink_defcon_p
-from fpl_analyser.fpl_rules import defcon_threshold
-from fpl_analyser.xp.model import ModelContext, expected_points
+from fpl_radar.features import shrink_defcon_p
+from fpl_radar.fpl_rules import defcon_threshold
+from fpl_radar.xp.model import ModelContext, expected_points
 from tests.fixtures import bootstrap_sample
-from fpl_analyser.features import build_feature_set
+from fpl_radar.features import build_feature_set
 from tests.test_features import _us_league
 
 

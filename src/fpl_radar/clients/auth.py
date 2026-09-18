@@ -5,7 +5,7 @@ from typing import Any
 
 import requests
 
-from fpl_analyser import config
+from fpl_radar import config
 
 
 class AuthError(RuntimeError):

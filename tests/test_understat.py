@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fpl_analyser.clients.understat import UnderstatClient, decode_understat_embedded, extract_embedded_var
+from fpl_radar.clients.understat import UnderstatClient, decode_understat_embedded, extract_embedded_var
 from tests.conftest import FakeResponse, FakeSession
 
 

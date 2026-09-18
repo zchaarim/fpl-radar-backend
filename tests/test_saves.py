@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from fpl_analyser.features import build_feature_set, expected_save_points, shrink_saves_e
-from fpl_analyser.xp.model import ModelContext, expected_points
+from fpl_radar.features import build_feature_set, expected_save_points, shrink_saves_e
+from fpl_radar.xp.model import ModelContext, expected_points
 from tests.fixtures import bootstrap_sample
 from tests.test_features import _us_league
 

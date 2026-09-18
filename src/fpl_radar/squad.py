@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fpl_analyser.clients.auth import AuthError, FplAuthClient
-from fpl_analyser.clients.fpl import FplApiError, FplClient
-from fpl_analyser.fpl_rules import estimated_selling_price, sell_on_fee, start_price
-from fpl_analyser.models import ManagerSquad, PriceSource, SquadPlayer
+from fpl_radar.clients.auth import AuthError, FplAuthClient
+from fpl_radar.clients.fpl import FplApiError, FplClient
+from fpl_radar.fpl_rules import estimated_selling_price, sell_on_fee, start_price
+from fpl_radar.models import ManagerSquad, PriceSource, SquadPlayer
 
 logger = logging.getLogger(__name__)
 

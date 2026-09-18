@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fpl-analyser"
+name = "fpl-radar-backend"
 version = "0.1.0"
-description = "FPL transfer analysis backend: ingest, expected points interfaces, and ranked transfer options."
+description = "FPL Radar backend: Ranking And Differential Analysis of Replacements."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -19,7 +19,7 @@ dependencies = [
 dev = ["pytest>=8.0"]
 
 [project.scripts]
-fpl-analyser = "fpl_analyser.cli:main"
+fpl-radar-backend = "fpl_radar.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

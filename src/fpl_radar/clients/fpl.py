@@ -7,8 +7,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from fpl_analyser import config
-from fpl_analyser.ingest.store import JsonCache
+from fpl_radar import config
+from fpl_radar.ingest.store import JsonCache
 
 logger = logging.getLogger(__name__)
 

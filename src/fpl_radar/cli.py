@@ -4,11 +4,11 @@ import argparse
 import json
 import sys
 
-from fpl_analyser.clients.auth import FplAuthClient, build_auth_client
-from fpl_analyser.clients.fpl import FplClient
-from fpl_analyser.ingest.sync import default_cache, load_model_context, sync_fpl, sync_understat
-from fpl_analyser.squad import load_manager_squad
-from fpl_analyser.transfers.rank import rank_replacements
+from fpl_radar.clients.auth import FplAuthClient, build_auth_client
+from fpl_radar.clients.fpl import FplClient
+from fpl_radar.ingest.sync import default_cache, load_model_context, sync_fpl, sync_understat
+from fpl_radar.squad import load_manager_squad
+from fpl_radar.transfers.rank import rank_replacements
 
 
 def _client() -> FplClient:
@@ -110,7 +110,7 @@ def cmd_xgi(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="fpl-analyser")
+    parser = argparse.ArgumentParser(prog="fpl-radar-backend")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sync = sub.add_parser("sync", help="Pull FPL bootstrap/fixtures and Understat EPL data")

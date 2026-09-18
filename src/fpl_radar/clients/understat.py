@@ -9,8 +9,8 @@ from typing import Any
 import requests
 from bs4 import BeautifulSoup
 
-from fpl_analyser import config
-from fpl_analyser.ingest.store import JsonCache
+from fpl_radar import config
+from fpl_radar.ingest.store import JsonCache
 
 logger = logging.getLogger(__name__)
 

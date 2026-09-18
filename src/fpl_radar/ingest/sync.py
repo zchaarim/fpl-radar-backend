@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fpl_analyser import config
-from fpl_analyser.clients.fpl import FplClient
-from fpl_analyser.clients.understat import UnderstatClient
-from fpl_analyser.features import build_feature_set
-from fpl_analyser.identity.match import load_overrides, match_players, match_teams
-from fpl_analyser.ingest.store import JsonCache
-from fpl_analyser.xp.model import ModelContext
+from fpl_radar import config
+from fpl_radar.clients.fpl import FplClient
+from fpl_radar.clients.understat import UnderstatClient
+from fpl_radar.features import build_feature_set
+from fpl_radar.identity.match import load_overrides, match_players, match_teams
+from fpl_radar.ingest.store import JsonCache
+from fpl_radar.xp.model import ModelContext
 
 
 def default_cache() -> JsonCache:

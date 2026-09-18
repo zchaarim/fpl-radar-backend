@@ -1,8 +1,8 @@
 # Transfer ranking
 
-CLI: `fpl-analyser recommend --entry ID --horizon N [--bank 1.2] [--session-cookie ...] [--limit 20]`
+CLI: `fpl-radar-backend recommend --entry ID --horizon N [--bank 1.2] [--session-cookie ...] [--limit 20]`
 
-Library: `fpl_analyser.transfers.rank_replacements`.
+Library: `fpl_radar.transfers.rank_replacements`.
 
 Free transfers are **not** modelled. The output is a ranked list of legal **1-for-1** replacements. The manager decides how many to make.
 
@@ -27,4 +27,4 @@ For current squad and each candidate squad, compute **best XI xP each GW** (1 GK
 
 Each option includes out/in names and ids, purchase/sell/now_cost, `price_source`, bank after, delta, incoming xP, per-GW delta series.
 
-2-for-2, hits, chips, and multi-week sequences are out of scope for v1.
+2-for-2, hits, chips, and multi-week sequences are out of scope for v1. The HTTP API for a front-end is planned; ranking stays in the library so the site can call the same functions as the CLI.

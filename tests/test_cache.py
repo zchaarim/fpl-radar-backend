@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fpl_analyser.ingest.store import JsonCache
+from fpl_radar.ingest.store import JsonCache
 
 
 def test_json_cache_roundtrip(tmp_path: Path) -> None:
@@ -14,5 +14,5 @@ def test_json_cache_roundtrip(tmp_path: Path) -> None:
 def test_json_cache_ttl_expiry(tmp_path: Path, monkeypatch) -> None:
     cache = JsonCache(tmp_path)
     cache.set("x", 1)
-    monkeypatch.setattr("fpl_analyser.ingest.store.time.time", lambda: 10**12)
+    monkeypatch.setattr("fpl_radar.ingest.store.time.time", lambda: 10**12)
     assert cache.get("x", ttl_seconds=1) is None
