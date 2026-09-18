@@ -6,10 +6,20 @@ from typing import Any
 from fpl_analyser.features import (
     FeatureSet,
     build_feature_set,
+    expected_goals_conceded_points,
     expected_minutes,
+    fixture_goals_against_lambda,
     fixture_multiplier,
+    p_play_sixty,
+    poisson_clean_sheet,
 )
-from fpl_analyser.fpl_rules import ELEMENT_TYPE_DEF, ELEMENT_TYPE_FWD, ELEMENT_TYPE_GKP, ELEMENT_TYPE_MID, scoring_table
+from fpl_analyser.fpl_rules import (
+    ELEMENT_TYPE_DEF,
+    ELEMENT_TYPE_FWD,
+    ELEMENT_TYPE_GKP,
+    ELEMENT_TYPE_MID,
+    scoring_table,
+)
 from fpl_analyser.models import PlayerXp
 
 
@@ -28,6 +38,13 @@ GOAL_KEYS = {
     ELEMENT_TYPE_DEF: "goal_def",
     ELEMENT_TYPE_MID: "goal_mid",
     ELEMENT_TYPE_FWD: "goal_fwd",
+}
+
+CS_KEYS = {
+    ELEMENT_TYPE_GKP: "clean_sheet_gk",
+    ELEMENT_TYPE_DEF: "clean_sheet_def",
+    ELEMENT_TYPE_MID: "clean_sheet_mid",
+    ELEMENT_TYPE_FWD: "clean_sheet_fwd",
 }
 
 
@@ -87,7 +104,12 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
     team_id = int(player.get("team") or 0)
     goal_pts = float(table[GOAL_KEYS.get(element_type, "goal_mid")])
     assist_pts = float(table["assist"])
+    cs_pts = float(table[CS_KEYS.get(element_type, "clean_sheet_fwd")])
+    gc_per = int(table["goals_conceded_per"])
+    gc_pts = float(table["goals_conceded_points"])
     share_mins = exp_mins / 90.0
+    p60 = p_play_sixty(exp_mins)
+    gets_gc = element_type in {ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF}
 
     per_event: dict[int, float] = {}
     event_break: dict[str, Any] = {}
@@ -96,6 +118,9 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
         gw_pts = 0.0
         gw_xg = 0.0
         gw_xa = 0.0
+        gw_cs = 0.0
+        gw_gc = 0.0
+        gw_lambda = 0.0
         if not fixtures:
             per_event[int(event_id)] = 0.0
             event_break[str(event_id)] = {"blank": True}
@@ -106,17 +131,30 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             mult = fixture_multiplier(features, team_id, opp_id, is_home)
             xg = rates.xg90 * share_mins * mult
             xa = rates.xa90 * share_mins * mult
+            lam_ga = fixture_goals_against_lambda(features, team_id, opp_id, is_home)
+            p_cs = p60 * poisson_clean_sheet(lam_ga)
+            cs_xp = p_cs * cs_pts
+            gc_xp = p60 * expected_goals_conceded_points(lam_ga, per=gc_per, points_per=gc_pts) if gets_gc else 0.0
             gw_xg += xg
             gw_xa += xa
+            gw_cs += cs_xp
+            gw_gc += gc_xp
+            gw_lambda += lam_ga
             gw_pts += _minutes_points(exp_mins, table)
             gw_pts += xg * goal_pts
             gw_pts += xa * assist_pts
+            gw_pts += cs_xp
+            gw_pts += gc_xp
         per_event[int(event_id)] = gw_pts
         event_break[str(event_id)] = {
             "minutes": exp_mins,
+            "p60": round(p60, 4),
             "xg": round(gw_xg, 4),
             "xa": round(gw_xa, 4),
             "xgi": round(gw_xg + gw_xa, 4),
+            "lambda_ga": round(gw_lambda, 4),
+            "cs_xp": round(gw_cs, 4),
+            "gc_xp": round(gw_gc, 4),
             "fixtures": len(fixtures),
         }
 
@@ -126,7 +164,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
         per_event=per_event,
         horizon_sum=sum(per_event.values()),
         breakdown={
-            "source": "xgi_minutes_goals_assists",
+            "source": "xgi_minutes_cs_gc",
             "rate_source": rates.source,
             "xg90": rates.xg90,
             "xa90": rates.xa90,

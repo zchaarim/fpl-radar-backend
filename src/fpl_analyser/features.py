@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -263,3 +264,56 @@ def fixture_multiplier(
     att = team.att_home if is_home else team.att_away
     dfn = opp.def_away if is_home else opp.def_home
     return max(0.25, att * dfn)
+
+
+def fixture_goals_against_lambda(
+    features: FeatureSet,
+    team_id: int,
+    opponent_id: int,
+    is_home: bool,
+) -> float:
+    """Expected goals conceded by team_id in this fixture (Poisson lambda)."""
+    team = features.teams.get(team_id)
+    opp = features.teams.get(opponent_id)
+    league = max(features.league_xg_pg, 0.05)
+    if not team or not opp:
+        return league
+    opp_att = opp.att_away if is_home else opp.att_home
+    our_def = team.def_home if is_home else team.def_away
+    return max(0.05, league * opp_att * our_def)
+
+
+def poisson_pmf(k: int, lam: float) -> float:
+    if k < 0:
+        return 0.0
+    if lam <= 0:
+        return 1.0 if k == 0 else 0.0
+    return math.exp(-lam) * (lam**k) / math.factorial(k)
+
+
+def poisson_clean_sheet(lam: float) -> float:
+    return math.exp(-max(lam, 0.0))
+
+
+def expected_goals_conceded_points(
+    lam: float,
+    per: int = 2,
+    points_per: float = -1.0,
+    k_max: int = 12,
+) -> float:
+    """E[floor(goals / per) * points_per] under Poisson(lam)."""
+    total = 0.0
+    for k in range(k_max + 1):
+        total += (k // per) * poisson_pmf(k, lam)
+    return total * points_per
+
+
+def p_play_sixty(exp_mins: float) -> float:
+    """FPL CS and GC both require 60+ minutes."""
+    if exp_mins <= 0:
+        return 0.0
+    if exp_mins >= 70:
+        return 1.0
+    if exp_mins <= 30:
+        return 0.0
+    return (exp_mins - 30.0) / 40.0

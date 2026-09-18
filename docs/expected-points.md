@@ -1,25 +1,36 @@
 # Expected points
 
-`fpl_analyser.xp.expected_points` now has two modes:
+`fpl_analyser.xp.expected_points` has two modes:
 
-1. **xGI path** when `ModelContext.features` (or `understat_league`) is set: appearance minutes + expected goals/assists. Clean sheets, DefCon, bonus, cards, saves are **not** in yet.
-2. **Placeholder** if there are no features: FPL `ep_next` repeated across the horizon (`placeholder=True`).
+1. **Model path** when `ModelContext.features` (or `understat_league`) is set: minutes, xG/xA, clean sheets, goals conceded.
+2. **Placeholder** if there are no features: FPL `ep_next` (`placeholder=True`).
 
-## Attacking model (current)
+DefCon, bonus, saves, and cards are not in yet.
 
-For each FPL fixture in the horizon (blanks = 0, doubles sum both):
+## Per fixture
 
-- Expected minutes from Understat `time/games` (else FPL minutes), scaled by `chance_of_playing_next_round` / injury status.
-- Player xG/90 and xA/90 from Understat (`xG`, `xA`, `time`). Unmatched players fall back to FPL `expected_goals` / `expected_assists`.
-- Fixture multiplier = player-team attack × opposition defensive weakness, home/away split. Attack and defence blend **actual GF/GA** and **Understat xG/xGA** vs league average.
+Blanks score 0; doubles sum both matches.
+
+**Minutes and attack**
+
+- Expected minutes from Understat `time/games` (else FPL minutes), scaled by availability.
+- xG/90 and xA/90 from Understat; unmatched players use FPL `expected_goals` / `expected_assists`.
+- Attack multiplier = player-team attack × opposition defensive weakness (home/away). Strengths blend actual GF/GA and Understat xG/xGA vs league average.
 - `E[goals] = xG90 × (mins/90) × multiplier` (same for assists).
-- Points: minutes 1/2 + E[goals] × position goal points + E[assists] × 3.
 
-xGI = xG + xA. Inspect rates with `fpl-analyser xgi`.
+**Clean sheets and goals conceded**
 
-## Scoring routes (full list; only minutes/goals/assists used so far)
+- Goals the player's team concedes ~ Poisson(`λ`), where `λ = league_xG/game × opponent_attack × team_defence_weakness` (home/away).
+- `P(CS) = P(play 60+) × e^{-λ}`. FPL only awards CS (and GC) if the player reaches 60 minutes.
+- CS points: 4 GK/DEF, 1 MID, 0 FWD.
+- GK/DEF GC: `P(play 60+) × E[⌊goals/2⌋] × -1`.
+- `P(play 60+)` ramps from 0 at 30 minutes to 1 at 70.
 
-Use `bootstrap-static` `game_settings` when present, else `fpl_analyser.fpl_rules.SCORING_DEFAULTS`.
+Inspect attacking rates with `fpl-analyser xgi`. Transfer recommend uses this full xP.
+
+## Scoring table
+
+Values come from `game_settings` when present, else `fpl_analyser.fpl_rules.SCORING_DEFAULTS`.
 
 | Event | Points (typical) |
 | --- | --- |
@@ -36,4 +47,4 @@ Use `bootstrap-static` `game_settings` when present, else `fpl_analyser.fpl_rule
 | Bonus (BPS rank 1–3 in the match) | 1–3 |
 | Defensive contribution (DEF: 10 CBIT; MID/FWD: 12 CBIRT) | 2, capped per match |
 
-Next: Poisson CS/GC from the same team xG lambdas, then DefCon, saves, bonus.
+Next: DefCon, then saves and bonus.
