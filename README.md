@@ -1,6 +1,6 @@
 # FPL analyser
 
-Python backend for Fantasy Premier League transfer analysis: ingest public FPL + Understat data, reconstruct a manager’s squad, and rank 1-for-1 transfers. Expected-points math is stubbed in this phase (`ep_next` as a labelled placeholder).
+Python backend for Fantasy Premier League transfer analysis: ingest public FPL + Understat xGI, reconstruct a manager’s squad, and rank 1-for-1 transfers. xP currently uses minutes + opponent-adjusted xG/xA (not CS/DefCon/bonus yet).
 
 ## Setup
 
@@ -8,15 +8,16 @@ Python 3.11+
 
 ```text
 python -m pip install -e ".[dev]"
+python -m fpl_analyser.cli sync
 ```
 
 ## Commands
 
 ```text
-fpl-analyser sync
-fpl-analyser squad --entry 123456
-fpl-analyser squad --entry 123456 --bank 1.2
-fpl-analyser recommend --entry 123456 --horizon 6 --limit 20
+python -m fpl_analyser.cli sync
+python -m fpl_analyser.cli xgi --limit 20
+python -m fpl_analyser.cli squad --entry 123456
+python -m fpl_analyser.cli recommend --entry 123456 --horizon 6 --limit 20
 ```
 
 Optional exact sale prices (your team only). FPL no longer authenticates `/me/` with cookies. In DevTools, open the **same** `api/me/` request, then **Request headers** → `x-api-authorization`. Copy the JWT (with or without the `Bearer ` prefix):

@@ -158,7 +158,7 @@ def rank_replacements(
                     per_event_delta={
                         eid: new_per.get(eid, 0.0) - current_per.get(eid, 0.0) for eid in event_ids
                     },
-                    placeholder=True,
+                    placeholder=ctx.features is None,
                 )
             )
     options.sort(key=lambda o: (o.delta, o.incoming_horizon_xp), reverse=True)

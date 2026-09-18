@@ -1,8 +1,23 @@
 # Expected points
 
-Phase 1 implements `fpl_analyser.xp.expected_points(player_id, event_ids, context) -> PlayerXp` as a **placeholder**: it repeats FPL `elements[].ep_next` across the horizon and sets `placeholder=True`. Replace the body of `xp/model.py` without changing callers.
+`fpl_analyser.xp.expected_points` now has two modes:
 
-## Scoring routes
+1. **xGI path** when `ModelContext.features` (or `understat_league`) is set: appearance minutes + expected goals/assists. Clean sheets, DefCon, bonus, cards, saves are **not** in yet.
+2. **Placeholder** if there are no features: FPL `ep_next` repeated across the horizon (`placeholder=True`).
+
+## Attacking model (current)
+
+For each FPL fixture in the horizon (blanks = 0, doubles sum both):
+
+- Expected minutes from Understat `time/games` (else FPL minutes), scaled by `chance_of_playing_next_round` / injury status.
+- Player xG/90 and xA/90 from Understat (`xG`, `xA`, `time`). Unmatched players fall back to FPL `expected_goals` / `expected_assists`.
+- Fixture multiplier = player-team attack × opposition defensive weakness, home/away split. Attack and defence blend **actual GF/GA** and **Understat xG/xGA** vs league average.
+- `E[goals] = xG90 × (mins/90) × multiplier` (same for assists).
+- Points: minutes 1/2 + E[goals] × position goal points + E[assists] × 3.
+
+xGI = xG + xA. Inspect rates with `fpl-analyser xgi`.
+
+## Scoring routes (full list; only minutes/goals/assists used so far)
 
 Use `bootstrap-static` `game_settings` when present, else `fpl_analyser.fpl_rules.SCORING_DEFAULTS`.
 
@@ -21,19 +36,4 @@ Use `bootstrap-static` `game_settings` when present, else `fpl_analyser.fpl_rule
 | Bonus (BPS rank 1–3 in the match) | 1–3 |
 | Defensive contribution (DEF: 10 CBIT; MID/FWD: 12 CBIRT) | 2, capped per match |
 
-DefCon (from 2025/26) is independent of clean sheets. 2026/27 BPS weights for CBI/saves changed; bonus probability should follow current BPS, not last season’s.
-
-## Intended model (not implemented yet)
-
-For each player and fixture in the horizon:
-
-`xP = E[minutes points] + Σ P(event) × points(event)`
-
-- **Team strength:** blend actual GF/GA and Understat xG/xGA, split home/away, opponent-adjust (attack vs opposition defence).
-- **Player rates:** FPL per-90 (goals, assists, xG, xA, DefCon, saves, BPS/bonus) × expected minutes.
-- **Independence:** treat scoring events as independent given minutes and team totals unless a later module models covariance (e.g. goals vs CS).
-- **Counts:** Poisson (or similar) for team goals → CS and player goals/assists; threshold model for DefCon; saves from opponent shot/xG volume.
-
-`PlayerXp` already has `per_event`, `horizon_sum`, and a `breakdown` dict keyed by scoring event for that swap-in.
-
-`ModelContext` carries bootstrap, optional Understat league dump, and FPL↔Understat id maps.
+Next: Poisson CS/GC from the same team xG lambdas, then DefCon, saves, bonus.

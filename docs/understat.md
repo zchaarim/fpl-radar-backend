@@ -11,9 +11,13 @@ Do not depend on `understatapi` / `py-understat`; they lag site changes.
 1. `GET https://understat.com/league/EPL/2026` (session cookies).
 2. `GET https://understat.com/getLeagueData/EPL/2026` with `User-Agent` and `X-Requested-With: XMLHttpRequest`.
 3. JSON object with:
-   - `teams` — season xG / xGA / PPDA and related team table
-   - `players` — player xG, xA, shots, minutes
-   - `dates` — fixtures with team-level xG
+   - `teams` — `{id, title, history[]}` per club. Each history row is a match: `h_a`, `xG`, `xGA`, `scored`, `missed`, …
+   - `players` — `id`, `player_name`, `team_title`, `time`, `games`, `xG`, `xA`, shots, …
+   - `dates` — season fixtures with team-level `xG` and `goals`
+
+That league dump is enough for player xGI/90 and team attack/defence (including home/away). `getTeamData` is not required for the current model.
+
+`fpl-analyser sync` caches this. `fpl-analyser xgi` prints per-90 rates after matching FPL ids. Unmatched names go in `data/mappings/overrides.json`.
 
 If AJAX is not JSON, fall back to decoding embedded `teamsData` / `playersData` / `datesData` from the league HTML (`unicode_escape` then `json.loads`).
 
@@ -28,4 +32,4 @@ Same AJAX headers, typical paths used by community clients:
 
 ## Identity
 
-`fpl_analyser.identity.match` maps FPL club names to Understat `title` and players by normalized name + club. Manual fixes: `data/mappings/overrides.json` (`teams` keyed by FPL team id, `players` keyed by FPL element id). Unmatched players still receive FPL-only placeholder xP.
+`fpl_analyser.identity.match` maps FPL club names to Understat `title` and players by normalized name + club. Dual `team_title` values use the last club. Manual fixes: `data/mappings/overrides.json`. Unmatched players use FPL `expected_goals` / `expected_assists` instead of Understat xGI.

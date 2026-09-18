@@ -79,7 +79,7 @@ def match_players(
     for player in understat_players:
         pid = str(player.get("id"))
         name = normalize_name(player.get("player_name") or "")
-        team = normalize_name(player.get("team_title") or "")
+        team = normalize_name((player.get("team_title") or "").split(",")[-1])
         us_index[(name, team)] = pid
         us_by_name.setdefault(name, []).append(pid)
 
