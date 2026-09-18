@@ -40,6 +40,8 @@ MAX_PLAYERS_PER_CLUB = 3
 SQUAD_SIZE = 15
 STARTING_XI = 11
 DEFCON_PRIOR_GAMES = 6
+BONUS_PRIOR_GAMES = 6
+MIN_BONUS_CURVE_BUCKETS = 8
 
 
 def defcon_threshold(element_type: int) -> int | None:

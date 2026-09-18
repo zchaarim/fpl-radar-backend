@@ -123,6 +123,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
         gw_cs = 0.0
         gw_gc = 0.0
         gw_dc = 0.0
+        gw_bonus = 0.0
         gw_lambda = 0.0
         if not fixtures:
             per_event[int(event_id)] = 0.0
@@ -139,11 +140,13 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             cs_xp = p_cs * cs_pts
             gc_xp = p60 * expected_goals_conceded_points(lam_ga, per=gc_per, points_per=gc_pts) if gets_gc else 0.0
             dc_xp = p60 * defcon_p * defcon_pts
+            bonus_xp = p60 * rates.bonus_e
             gw_xg += xg
             gw_xa += xa
             gw_cs += cs_xp
             gw_gc += gc_xp
             gw_dc += dc_xp
+            gw_bonus += bonus_xp
             gw_lambda += lam_ga
             gw_pts += _minutes_points(exp_mins, table)
             gw_pts += xg * goal_pts
@@ -151,6 +154,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             gw_pts += cs_xp
             gw_pts += gc_xp
             gw_pts += dc_xp
+            gw_pts += bonus_xp
         per_event[int(event_id)] = gw_pts
         event_break[str(event_id)] = {
             "minutes": exp_mins,
@@ -163,6 +167,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             "gc_xp": round(gw_gc, 4),
             "defcon_xp": round(gw_dc, 4),
             "defcon_p": round(defcon_p, 4),
+            "bonus_xp": round(gw_bonus, 4),
             "fixtures": len(fixtures),
         }
 
@@ -172,7 +177,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
         per_event=per_event,
         horizon_sum=sum(per_event.values()),
         breakdown={
-            "source": "xgi_minutes_cs_gc_defcon",
+            "source": "xgi_minutes_cs_gc_defcon_bonus",
             "rate_source": rates.source,
             "xg90": rates.xg90,
             "xa90": rates.xa90,
@@ -180,6 +185,9 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             "defcon_p": rates.defcon_p,
             "defcon_games": rates.defcon_games,
             "defcon_hits": rates.defcon_hits,
+            "bps_avg": rates.bps_avg,
+            "bonus_avg": rates.bonus_avg,
+            "bonus_e": rates.bonus_e,
             "events": event_break,
         },
         placeholder=False,

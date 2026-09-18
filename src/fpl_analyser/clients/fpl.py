@@ -100,21 +100,37 @@ class FplClient:
         data = bootstrap or self.bootstrap_static()
         return [int(event["id"]) for event in data.get("events") or [] if event.get("finished")]
 
-    def live_defcon_log(
+    def live_match_log(
         self,
         bootstrap: dict[str, Any] | None = None,
-    ) -> dict[int, list[tuple[int, float]]]:
-        """Per player list of (minutes, defensive_contribution) from finished GW live stats."""
+    ) -> dict[int, list[dict[str, float]]]:
+        """Per player per finished GW: minutes, defcon, bps, bonus."""
         data = bootstrap or self.bootstrap_static()
-        by_player: dict[int, list[tuple[int, float]]] = {}
+        by_player: dict[int, list[dict[str, float]]] = {}
         for event_id in self.finished_event_ids(data):
             live = self.event_live(event_id)
             for element in live.get("elements") or []:
                 stats = element.get("stats") or {}
-                if "defensive_contribution" not in stats:
+                minutes = float(stats.get("minutes") or 0)
+                if minutes <= 0:
                     continue
                 pid = int(element["id"])
-                minutes = int(stats.get("minutes") or 0)
-                actions = float(stats.get("defensive_contribution") or 0)
-                by_player.setdefault(pid, []).append((minutes, actions))
+                by_player.setdefault(pid, []).append(
+                    {
+                        "minutes": minutes,
+                        "defensive_contribution": float(stats.get("defensive_contribution") or 0),
+                        "bps": float(stats.get("bps") or 0),
+                        "bonus": float(stats.get("bonus") or 0),
+                    }
+                )
         return by_player
+
+    def live_defcon_log(
+        self,
+        bootstrap: dict[str, Any] | None = None,
+    ) -> dict[int, list[tuple[int, float]]]:
+        log = self.live_match_log(bootstrap)
+        return {
+            pid: [(int(row["minutes"]), row["defensive_contribution"]) for row in rows]
+            for pid, rows in log.items()
+        }

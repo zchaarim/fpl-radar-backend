@@ -78,7 +78,8 @@ def load_model_context(fpl_client: FplClient | None = None) -> ModelContext:
         bootstrap.get("teams") or [],
         overrides,
     )
-    features = build_feature_set(bootstrap, understat, client.live_defcon_log(bootstrap))
+    live = client.live_match_log(bootstrap)
+    features = build_feature_set(bootstrap, understat, live_matches=live)
     return ModelContext(
         bootstrap=bootstrap,
         fixtures=fixtures,

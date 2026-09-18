@@ -5,10 +5,13 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from fpl_analyser.fpl_rules import (
+    BONUS_PRIOR_GAMES,
     DEFCON_PRIOR_GAMES,
     ELEMENT_TYPE_DEF,
     ELEMENT_TYPE_FWD,
+    ELEMENT_TYPE_GKP,
     ELEMENT_TYPE_MID,
+    MIN_BONUS_CURVE_BUCKETS,
     defcon_threshold,
 )
 from fpl_analyser.identity.match import load_overrides, match_players, match_teams
@@ -62,6 +65,11 @@ class PlayerRates:
     defcon_hits: int = 0
     defcon_p: float = 0.0
     defcon_source: str = "none"
+    bps_avg: float = 0.0
+    bonus_avg: float = 0.0
+    bonus_e: float = 0.0
+    bonus_games: int = 0
+    bonus_source: str = "none"
 
 
 @dataclass
@@ -221,6 +229,7 @@ def build_feature_set(
     bootstrap: dict[str, Any],
     understat_league: dict[str, Any] | None,
     live_defcon: dict[int, list[tuple[int, float]]] | None = None,
+    live_matches: dict[int, list[dict[str, float]]] | None = None,
 ) -> FeatureSet:
     fpl_teams = bootstrap.get("teams") or []
     fpl_players = bootstrap.get("elements") or []
@@ -255,9 +264,16 @@ def build_feature_set(
             if us_players:
                 unmatched.append(eid)
 
+    if live_matches and not live_defcon:
+        live_defcon = {
+            pid: [(int(row["minutes"]), row.get("defensive_contribution") or 0.0) for row in rows]
+            for pid, rows in live_matches.items()
+        }
+    players = attach_defcon(players, fpl_players, live_defcon)
+    players = attach_bonus(players, fpl_players, live_matches)
     return FeatureSet(
         teams=teams,
-        players=attach_defcon(players, fpl_players, live_defcon),
+        players=players,
         league_xg_pg=league_xg,
         unmatched_players=unmatched,
     )
@@ -420,6 +436,137 @@ def attach_defcon(
             defcon_hits=hits,
             defcon_p=p_hit,
             defcon_source=source,
+        )
+    for eid, rates in rates_by_id.items():
+        if eid not in updated:
+            updated[eid] = rates
+    return updated
+
+
+def heuristic_bonus_from_bps(bps: float) -> float:
+    """Rough E[bonus] from typical match BPS ranks when no live curve exists."""
+    if bps <= 0:
+        return 0.0
+    if bps < 12:
+        return 0.02 * bps
+    if bps < 22:
+        return 0.24 + (bps - 12) * 0.04
+    if bps < 30:
+        return 0.64 + (bps - 22) * 0.12
+    return min(2.4, 1.6 + (bps - 30) * 0.12)
+
+
+def build_bonus_curve(live_matches: dict[int, list[dict[str, float]]] | None) -> dict[int, float]:
+    buckets: dict[int, list[float]] = {}
+    for rows in (live_matches or {}).values():
+        for row in rows:
+            if (row.get("minutes") or 0) < 45:
+                continue
+            key = int(round(row.get("bps") or 0))
+            buckets.setdefault(key, []).append(row.get("bonus") or 0.0)
+    return {bps: sum(vals) / len(vals) for bps, vals in buckets.items() if vals}
+
+
+def expected_bonus_from_bps(bps: float, curve: dict[int, float]) -> float:
+    prior = heuristic_bonus_from_bps(bps)
+    if len(curve) < MIN_BONUS_CURVE_BUCKETS:
+        return prior
+
+    def lookup(key: int) -> float:
+        if key in curve:
+            return curve[key]
+        nearest = min(curve, key=lambda item: abs(item - key))
+        fallback = heuristic_bonus_from_bps(float(key))
+        if abs(nearest - key) > 6:
+            return fallback
+        return curve[nearest]
+
+    lo = int(math.floor(bps))
+    hi = lo + 1
+    frac = bps - lo
+    return lookup(lo) * (1.0 - frac) + lookup(hi) * frac
+
+
+def live_bonus_record(rows: list[dict[str, float]]) -> tuple[int, float, float]:
+    eligible = [row for row in rows if (row.get("minutes") or 0) >= 45]
+    if not eligible:
+        return 0, 0.0, 0.0
+    n = len(eligible)
+    mean_bonus = sum(row.get("bonus") or 0.0 for row in eligible) / n
+    mean_bps = sum(row.get("bps") or 0.0 for row in eligible) / n
+    return n, mean_bonus, mean_bps
+
+
+def position_bps_pg(players: list[dict[str, Any]], element_type: int) -> float:
+    vals: list[float] = []
+    for player in players:
+        if int(player.get("element_type") or 0) != element_type:
+            continue
+        minutes = _f(player.get("minutes"))
+        if minutes < 180:
+            continue
+        games = max(_f(player.get("starts")), minutes / 90.0)
+        if games < 2:
+            continue
+        vals.append(_f(player.get("bps")) / games)
+    return sum(vals) / len(vals) if vals else 18.0
+
+
+def shrink_bonus_e(
+    games: int,
+    observed_bonus: float,
+    own_bps: float,
+    pos_bps: float,
+    curve: dict[int, float],
+    prior_games: int = BONUS_PRIOR_GAMES,
+) -> float:
+    n = max(games, 0)
+    k = max(prior_games, 1)
+    shrunk_bps = (n * own_bps + k * pos_bps) / (n + k)
+    prior = expected_bonus_from_bps(shrunk_bps, curve)
+    observed = observed_bonus if n > 0 else prior
+    weight = n / (n + k)
+    return max(0.0, min(3.0, weight * observed + (1.0 - weight) * prior))
+
+
+def attach_bonus(
+    rates_by_id: dict[int, PlayerRates],
+    fpl_players: list[dict[str, Any]],
+    live_matches: dict[int, list[dict[str, float]]] | None,
+) -> dict[int, PlayerRates]:
+    live_matches = live_matches or {}
+    curve = build_bonus_curve(live_matches)
+    pos_bps = {
+        etype: position_bps_pg(fpl_players, etype)
+        for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
+    }
+    updated: dict[int, PlayerRates] = {}
+    for player in fpl_players:
+        eid = int(player["id"])
+        rates = rates_by_id.get(eid) or fpl_player_rates(player)
+        etype = int(player.get("element_type") or 0)
+        minutes = _f(player.get("minutes"))
+        starts = max(_f(player.get("starts")), minutes / 90.0, 1.0)
+        season_bps = _f(player.get("bps")) / starts
+        season_bonus = _f(player.get("bonus")) / starts
+        games, mean_bonus, mean_bps = live_bonus_record(live_matches.get(eid, []))
+        own_bps = mean_bps if games else season_bps
+        observed = mean_bonus if games else season_bonus
+        n = games if games else (int(starts) if season_bonus or season_bps else 0)
+        bonus_e = shrink_bonus_e(
+            n,
+            observed,
+            own_bps,
+            pos_bps.get(etype, 18.0),
+            curve,
+        )
+        updated[eid] = replace(
+            rates,
+            bps_avg=own_bps,
+            bonus_avg=observed,
+            bonus_e=bonus_e,
+            bonus_games=games,
+            bonus_source="live+bps" if games else "season+bps",
         )
     for eid, rates in rates_by_id.items():
         if eid not in updated:

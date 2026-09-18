@@ -70,6 +70,6 @@ def test_xgi_xp_uses_fixture_and_not_placeholder() -> None:
     xp = expected_points(8, [2], ctx)
     assert not xp.placeholder
     assert xp.horizon_sum > 0
-    assert xp.breakdown["source"] == "xgi_minutes_cs_gc_defcon"
+    assert xp.breakdown["source"] == "xgi_minutes_cs_gc_defcon_bonus"
     blank = expected_points(8, [3], ctx)
     assert blank.per_event[3] == 0.0

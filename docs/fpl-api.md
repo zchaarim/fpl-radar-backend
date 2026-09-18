@@ -34,7 +34,7 @@ Remaining fixtures, this-season history, previous seasons. Fetch lazily; do not 
 
 ### `event/{event_id}/live/` — `FplClient.event_live`
 
-Per-player GW stats and points explainers (minutes, goals, DefCon, BPS, xG fields when present).
+Per-player GW stats and points explainers (minutes, goals, DefCon, BPS, bonus, xG fields when present). `FplClient.live_match_log` stacks finished GWs into per-player minutes / DefCon / BPS / bonus rows for the xP model.
 
 ### `event-status/` — `FplClient.event_status`
 

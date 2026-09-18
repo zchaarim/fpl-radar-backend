@@ -2,12 +2,8 @@
 
 `fpl_analyser.xp.expected_points` has two modes:
 
-1. **Model path** when `ModelContext.features` is set: minutes, xG/xA, CS, GC, DefCon.
+1. **Model path** when `ModelContext.features` is set: minutes, xG/xA, CS, GC, DefCon, bonus.
 2. **Placeholder** if there are no features: FPL `ep_next`.
-
-Bonus, saves, and cards are not in yet.
-
-## Per fixture
 
 Blanks score 0; doubles sum both matches.
 
@@ -37,6 +33,17 @@ So 1/1 hits does not become 2.0 xP; 16/20 with a high average stays high. GWs co
 
 DefCon xP = `P(play 60+) × P(hit) × 2`.
 
+**Bonus**
+
+Match bonus (0–3) from BPS rank. Two signals, both shrunk with `k = 6`:
+
+1. **BPS level** — mean BPS per 45+ minute appearance (live `event/{gw}/live/` when present, else season `bps / starts`). Shrink toward the **position** mean, then map BPS → `E[bonus]` with the empirical live curve once there are enough BPS buckets; otherwise a rank heuristic.
+2. **Observed bonus** — mean bonus points per those appearances (live, else season `bonus / starts`).
+
+`bonus_e` blends those. A single 3-bonus GW does not become 3.0 xP. High average BPS with few actual bonus hauls still scores some expected bonus.
+
+Bonus xP = `P(play 60+) × bonus_e`.
+
 ## Scoring table
 
 Values come from `game_settings` when present, else `fpl_analyser.fpl_rules.SCORING_DEFAULTS`.
@@ -56,4 +63,4 @@ Values come from `game_settings` when present, else `fpl_analyser.fpl_rules.SCOR
 | Bonus (BPS rank 1–3 in the match) | 1–3 |
 | Defensive contribution (DEF: 10 CBIT; MID/FWD: 12 CBIRT) | 2, capped per match |
 
-Next: saves and bonus.
+Next: saves and cards.
