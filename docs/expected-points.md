@@ -11,7 +11,7 @@ Blanks score 0; doubles sum both matches.
 
 - Minutes come from live GW appearances, **including 0-minute blanks**. We do not treat a start as 90 minutes and we do not classify start vs sub (45' is 45' either way).
 - Split **whether they play** from **how long they play when they do**:
-  - **Minutes|play** and **P(60+|play)** are averaged only over appearances with minutes > 0 (so unused keepers do not pull a nailed GK toward 70').
+  - **Minutes|play** and **P(60+|play)** are averaged only over appearances with minutes > 0 (so unused keepers do not pull a nailed GK toward 70'). They shrink toward other players in the same **duration role**: starter (mean minutes when playing ≥ 60') vs cameo. The cluster prior is worth `k = 4` **players**, not hundreds of pooled appearances.
   - **P(play)** shrinks toward other players in the same cluster: regular (≥60% of GWs), rotation, or unused.
   - **E[minutes] = P(play) × minutes|play**; **P(60+) = P(play) × P(60+|play)**.
 - Both pieces shrink with `k = 4`. Injury/doubt is **not** baked into horizon minutes (`chance_of_playing_next_round` would zero every GW). Recommendations show FPL yellow/red flags instead. A player who always plays 45 has ~45 E[minutes] and low P(60+), so they do **not** get CS points.

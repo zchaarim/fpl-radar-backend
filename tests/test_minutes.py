@@ -50,6 +50,25 @@ def test_rotation_zeros_lower_expected_minutes() -> None:
     assert rotated[8].p_played < nailed[8].p_played
 
 
+def test_nailed_defender_not_pulled_by_cameos() -> None:
+    boot = bootstrap_sample()
+    rates = {int(p["id"]): fpl_player_rates(p) for p in boot["elements"] if p["element_type"] == 2}
+    live = {
+        3: [{"minutes": 90}] * 4,
+        4: [{"minutes": 20}] * 4,
+        5: [{"minutes": 25}] * 4,
+        6: [{"minutes": 15}] * 4,
+        7: [{"minutes": 30}] * 4,
+        17: [{"minutes": 20}] * 4,
+    }
+    out = attach_minutes(rates, boot["elements"], live, finished_gws=4)
+    assert out[3].p60_when_played > 0.9
+    assert out[3].p60 > 0.85
+    assert out[3].mins_when_played > 80
+    assert out[4].p60 < 0.35
+    assert out[4].mins_when_played < 45
+
+
 def test_nailed_gk_not_pulled_by_unused_keepers() -> None:
     boot = bootstrap_sample()
     rates = {

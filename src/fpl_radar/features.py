@@ -15,10 +15,13 @@ from fpl_radar.fpl_rules import (
     HOME_SPLIT_PRIOR_GAMES,
     MIN_BONUS_CURVE_BUCKETS,
     MIN_PRIOR_MINUTES,
+    MINUTES_CAMEO_WHEN_PLAYING,
     MINUTES_PRIOR_GAMES,
     MINUTES_REGULAR_RATE,
+    MINUTES_STARTER_WHEN_PLAYING,
     MINUTES_UNUSED_RATE,
     MINUTES_WHEN_PLAYING,
+    P60_CAMEO_WHEN_PLAYING,
     P60_WHEN_PLAYING,
     P_PLAYED_REGULAR,
     P_PLAYED_ROTATION,
@@ -469,53 +472,93 @@ def _play_cluster(p_played: float) -> str:
     return "rotation"
 
 
+def _duration_cluster(n_apps: int, mins_when_played: float) -> str:
+    """Role when selected: starter (usually 60+) vs cameo vs unused.
+
+    P(play) already splits regular / rotation / unused. Minutes|play must not
+    mix 90' CBs with 20' subs — those are different roles, not one DEF rate.
+    """
+    if n_apps <= 0:
+        return "unused"
+    if mins_when_played >= MINUTES_STARTER_WHEN_PLAYING:
+        return "starter"
+    return "cameo"
+
+
+def _shrink_player_cluster(
+    samples: list[tuple[float, float]],
+    prior: float,
+    k: float = MINUTES_PRIOR_GAMES,
+) -> float:
+    """Cluster mean shrunk toward ``prior``.
+
+    Each *player* is one observation of a role (n = number of players). Pooling
+    appearances (n = 400) pretends 144 defenders are one rate and pins every
+    CB to the mixture mean; a player can only contribute ~38 apps a season.
+    Appearance weights still affect the *location* of the mean.
+    """
+    if not samples:
+        return prior
+    wsum = sum(max(w, 1.0) for _value, w in samples)
+    mean = sum(value * max(w, 1.0) for value, w in samples) / wsum
+    return shrink_mean(mean, prior, float(len(samples)), k)
+
+
+def _mean_or(values: list[float], fallback: float) -> float:
+    return sum(values) / len(values) if values else fallback
+
+
 def position_minutes(
     fpl_players: list[dict[str, Any]],
     rates_by_id: dict[int, PlayerRates],
     element_type: int,
-) -> tuple[float, float, float, float, float]:
-    """Return (mins|play, p60|play, p_play regular / rotation / unused)."""
-    default_m = MINUTES_WHEN_PLAYING.get(element_type, 75.0)
-    default_p60 = P60_WHEN_PLAYING.get(element_type, 0.75)
-    mins_num = 0.0
-    mins_den = 0.0
-    p60_num = 0.0
-    clusters: dict[str, list[float]] = {"regular": [], "rotation": [], "unused": []}
+) -> dict[str, dict[str, float]]:
+    """Priors for P(play) by selection cluster and mins/P(60+) by duration role."""
+    starter_m = MINUTES_WHEN_PLAYING.get(element_type, 75.0)
+    starter_p60 = P60_WHEN_PLAYING.get(element_type, 0.75)
+    cameo_m = MINUTES_CAMEO_WHEN_PLAYING.get(element_type, 25.0)
+    cameo_p60 = P60_CAMEO_WHEN_PLAYING.get(element_type, 0.12)
+    play: dict[str, list[float]] = {"regular": [], "rotation": [], "unused": []}
+    mins: dict[str, list[tuple[float, float]]] = {"starter": [], "cameo": [], "unused": []}
+    p60: dict[str, list[tuple[float, float]]] = {"starter": [], "cameo": [], "unused": []}
     for player in fpl_players:
         if int(player.get("element_type") or 0) != element_type:
             continue
         rates = rates_by_id.get(int(player["id"]))
         if rates is None or rates.minutes_n < 2:
             continue
+        play[_play_cluster(rates.p_played)].append(rates.p_played)
+        duration = _duration_cluster(rates.minutes_apps, rates.mins_when_played)
         if rates.minutes_apps > 0:
             w = float(rates.minutes_apps)
-            mins_num += rates.mins_when_played * w
-            mins_den += w
-            p60_num += rates.p60_when_played * w
-        clusters[_play_cluster(rates.p_played)].append(rates.p_played)
-    n_m = mins_den
-    return (
-        shrink_mean(mins_num / n_m if n_m else default_m, default_m, n_m, MINUTES_PRIOR_GAMES),
-        shrink_mean(p60_num / n_m if n_m else default_p60, default_p60, n_m, MINUTES_PRIOR_GAMES),
-        shrink_mean(
-            sum(clusters["regular"]) / len(clusters["regular"]) if clusters["regular"] else P_PLAYED_REGULAR[element_type],
-            P_PLAYED_REGULAR.get(element_type, 0.85),
-            float(len(clusters["regular"])),
-            MINUTES_PRIOR_GAMES,
-        ),
-        shrink_mean(
-            sum(clusters["rotation"]) / len(clusters["rotation"]) if clusters["rotation"] else P_PLAYED_ROTATION[element_type],
-            P_PLAYED_ROTATION.get(element_type, 0.45),
-            float(len(clusters["rotation"])),
-            MINUTES_PRIOR_GAMES,
-        ),
-        shrink_mean(
-            sum(clusters["unused"]) / len(clusters["unused"]) if clusters["unused"] else P_PLAYED_UNUSED[element_type],
-            P_PLAYED_UNUSED.get(element_type, 0.12),
-            float(len(clusters["unused"])),
-            MINUTES_PRIOR_GAMES,
-        ),
-    )
+            mins[duration].append((rates.mins_when_played, w))
+            p60[duration].append((rates.p60_when_played, w))
+    play_priors = {
+        "regular": P_PLAYED_REGULAR.get(element_type, 0.85),
+        "rotation": P_PLAYED_ROTATION.get(element_type, 0.45),
+        "unused": P_PLAYED_UNUSED.get(element_type, 0.12),
+    }
+    return {
+        "p_played": {
+            cluster: shrink_mean(
+                _mean_or(play[cluster], play_priors[cluster]),
+                play_priors[cluster],
+                float(len(play[cluster])),
+                MINUTES_PRIOR_GAMES,
+            )
+            for cluster in play_priors
+        },
+        "mins": {
+            "starter": _shrink_player_cluster(mins["starter"], starter_m),
+            "cameo": _shrink_player_cluster(mins["cameo"], cameo_m),
+            "unused": starter_m,
+        },
+        "p60": {
+            "starter": _shrink_player_cluster(p60["starter"], starter_p60),
+            "cameo": _shrink_player_cluster(p60["cameo"], cameo_p60),
+            "unused": starter_p60,
+        },
+    }
 
 
 def attach_minutes(
@@ -524,10 +567,12 @@ def attach_minutes(
     live_matches: dict[int, list[dict[str, float]]] | None,
     finished_gws: int = 0,
 ) -> dict[int, PlayerRates]:
-    """Empirical P(play) × minutes|play. Unused squad players do not pull starters toward 70'.
+    """Empirical P(play) × minutes|play.
 
-    Appearances (minutes > 0) set how long they play when selected. DNPs only
-    affect P(play). Regulars shrink P(play) toward other regulars; backups toward backups.
+    DNPs only affect P(play), which shrinks toward the same selection cluster
+    (regular / rotation / unused). Minutes|play and P(60+|play) shrink toward
+    other players with the same duration role (starter vs cameo), with the
+    cluster prior counted in *players* not pooled appearances.
     """
     live_matches = live_matches or {}
     seeded: dict[int, PlayerRates] = {}
@@ -582,13 +627,28 @@ def attach_minutes(
         eid = int(player["id"])
         rates = seeded.get(eid) or fpl_player_rates(player)
         etype = int(player.get("element_type") or 0)
-        pm, pp60, preg, prot, punused = pos.get(etype, (75.0, 0.75, 0.85, 0.45, 0.12))
+        priors = pos.get(etype) or {
+            "p_played": {"regular": 0.85, "rotation": 0.45, "unused": 0.12},
+            "mins": {"starter": 75.0, "cameo": 25.0, "unused": 75.0},
+            "p60": {"starter": 0.75, "cameo": 0.12, "unused": 0.75},
+        }
         n_apps = rates.minutes_apps
         n = rates.minutes_n
-        mins_w = shrink_mean(rates.mins_when_played, pm, n_apps, MINUTES_PRIOR_GAMES)
-        p60_w = shrink_mean(rates.p60_when_played, pp60, n_apps, MINUTES_PRIOR_GAMES)
+        duration = _duration_cluster(n_apps, rates.mins_when_played)
+        mins_w = shrink_mean(
+            rates.mins_when_played,
+            priors["mins"][duration],
+            n_apps,
+            MINUTES_PRIOR_GAMES,
+        )
+        p60_w = shrink_mean(
+            rates.p60_when_played,
+            priors["p60"][duration],
+            n_apps,
+            MINUTES_PRIOR_GAMES,
+        )
         cluster = _play_cluster(rates.p_played)
-        play_prior = {"regular": preg, "rotation": prot, "unused": punused}[cluster]
+        play_prior = priors["p_played"][cluster]
         played = shrink_mean(rates.p_played, play_prior, n, MINUTES_PRIOR_GAMES)
         exp = played * mins_w
         p60 = min(played, played * p60_w)
