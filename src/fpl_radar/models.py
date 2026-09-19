@@ -58,6 +58,7 @@ class TransferOption(BaseModel):
     price_source: PriceSource
     delta: float
     incoming_horizon_xp: float
+    element_type: int = 0
     per_event_delta: dict[int, float] = Field(default_factory=dict)
     out_flag: str = ""
     in_flag: str = ""

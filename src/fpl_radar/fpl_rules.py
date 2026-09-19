@@ -6,8 +6,9 @@ bootstrap `game_settings` when present). Everything else is a modelling choice:
 - Shrinkage *k* values: equivalent sample sizes. See comments in this file and
   docs/shrinkage.md (why 4 vs 8 vs 18 vs 30).
 - Minutes-when-playing / P(60+|play) / P(play) clusters: typical Premier League
-  patterns (keepers finish games; unused squad GKs should not pull Raya to 70').
-  Magnitudes are priors, overwritten by live GWs as *n* grows.
+  patterns (keepers finish games; unused squad GKs should not pull Raya to 70';
+  20-minute CB cameos should not pull Gabriel off 90'). Magnitudes are priors,
+  overwritten by live GWs as *n* grows.
 - xG/xA/90 and card/90 fallbacks: copies of 2025/26 Understat league rates
   (minutes-weighted, ≥180'). ``sync`` does not rewrite this file; live priors
   are computed from last season’s dump at feature-build time. These dicts are
@@ -16,7 +17,7 @@ bootstrap `game_settings` when present). Everything else is a modelling choice:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 # --- Official FPL rules (high confidence). Scoring falls back if bootstrap omits a key. ---
 SCORING_DEFAULTS: dict[str, int | float] = {
@@ -50,6 +51,13 @@ ELEMENT_TYPE_GKP = 1
 ELEMENT_TYPE_DEF = 2
 ELEMENT_TYPE_MID = 3
 ELEMENT_TYPE_FWD = 4
+POSITION_ORDER = (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
+POSITION_LABELS = {
+    ELEMENT_TYPE_GKP: "GKP",
+    ELEMENT_TYPE_DEF: "DEF",
+    ELEMENT_TYPE_MID: "MID",
+    ELEMENT_TYPE_FWD: "FWD",
+}
 
 MAX_PLAYERS_PER_CLUB = 3
 SQUAD_SIZE = 15
@@ -81,6 +89,9 @@ MINUTES_REGULAR_RATE = 0.6
 # Minutes *when they play* (not squad averages including DNP). Keepers are almost never subbed.
 # Weak hyperpriors when the live sample of playing players is empty.
 # Confidence: directional (GK ~90, outfield lower); magnitudes are typical PL, not a paper.
+# Starter vs cameo uses FPL's 60' CS/GC line: if they usually play 60+ they are not
+# shrunk toward 20-minute subs. This is a role prior, not a start/sub classifier.
+MINUTES_STARTER_WHEN_PLAYING = 60.0
 MINUTES_WHEN_PLAYING = {
     ELEMENT_TYPE_GKP: 88.0,
     ELEMENT_TYPE_DEF: 82.0,
@@ -92,6 +103,18 @@ P60_WHEN_PLAYING = {
     ELEMENT_TYPE_DEF: 0.88,
     ELEMENT_TYPE_MID: 0.75,
     ELEMENT_TYPE_FWD: 0.72,
+}
+MINUTES_CAMEO_WHEN_PLAYING = {
+    ELEMENT_TYPE_GKP: 20.0,
+    ELEMENT_TYPE_DEF: 25.0,
+    ELEMENT_TYPE_MID: 25.0,
+    ELEMENT_TYPE_FWD: 25.0,
+}
+P60_CAMEO_WHEN_PLAYING = {
+    ELEMENT_TYPE_GKP: 0.05,
+    ELEMENT_TYPE_DEF: 0.12,
+    ELEMENT_TYPE_MID: 0.12,
+    ELEMENT_TYPE_FWD: 0.12,
 }
 # Typical P(play) *inside* a cluster, used as the shrinkage prior.
 # Not cutoffs — cutoffs are MINUTES_UNUSED_RATE / MINUTES_REGULAR_RATE above.
@@ -189,3 +212,32 @@ def scoring_table(game_settings: dict[str, Any] | None = None) -> dict[str, int 
         if src in game_settings and game_settings[src] is not None:
             table[dest] = game_settings[src]
     return table
+
+
+T = TypeVar("T")
+
+
+def take_top_per_position(
+    items: list[T],
+    position_of: Callable[[T], int],
+    limit: int | None,
+) -> list[T]:
+    """Keep ``limit`` items for each FPL position, in ``POSITION_ORDER``.
+
+    ``items`` should already be sorted best-first. ``limit is None`` keeps all,
+    still grouped by position.
+    """
+    buckets: dict[int, list[T]] = {etype: [] for etype in POSITION_ORDER}
+    extra: list[T] = []
+    for item in items:
+        etype = position_of(item)
+        if etype not in buckets:
+            extra.append(item)
+            continue
+        if limit is None or len(buckets[etype]) < limit:
+            buckets[etype].append(item)
+    out: list[T] = []
+    for etype in POSITION_ORDER:
+        out.extend(buckets[etype])
+    out.extend(extra)
+    return out

@@ -27,7 +27,7 @@ At ~10–15 games, team xG strengths are mostly this season (`k = 10` → 50/50 
 | Team attack / defence | matches | 10 | Last EPL season xG vs league, else **1.0** |
 | Finishing (GF/xG, GA/xGA) | matches | 18 | Last season GF/xG, else **1.0** |
 | Home/away venue | home or away matches | 10 | Last season split, else league-wide HA |
-| Minutes when playing / P(60+|play) | appearances (mins > 0) | 4 | Playing-player position mean |
+| Minutes when playing / P(60+|play) | appearances (mins > 0) | 4 | Same duration role: starter (≥60' when playing) vs cameo; cluster mean counted in players |
 | P(play) | finished GWs | 4 | Same-cluster mean: regular / rotation / unused |
 | DefCon / bonus / saves / yellows | games or 90s | 8 | Position mean (DefCon/bonus/saves have no last-year prior) |
 | Reds | 90s | 30 | Position mean (last-season Understat reds/90) |
@@ -36,7 +36,7 @@ At ~10–15 games, team xG strengths are mostly this season (`k = 10` → 50/50 
 
 `k` is how many observations the prior is worth. It is **not** a fitted FPL backtest; it follows how noisy each series is in public soccer analytics.
 
-- **Minutes `k = 4`.** Playing time is a discrete role (nailed / rotation / out). Four GWs usually show it. `k = 6` was still dragging 4×90 keepers off a full game toward the cluster prior.
+- **Minutes `k = 4`.** Playing time is a discrete role (nailed / rotation / out, and starter vs cameo). Four GWs usually show it. `k = 6` was still dragging 4×90 keepers off a full game toward the cluster prior. The duration-role prior is estimated from **players** in that role (`n` = headcount, `k = 4`), not from pooling every defender appearance into one rate.
 - **xG/xA `k = 8` 90s.** Shooting rates need ~10–15 90s without a player prior (the usual public result: xG/90 is far more stable than goals/90, but not after two matches). Last season is already the prior mean when they have 180+ EPL minutes, so `k = 8` treats that year as about a third of a season after role-change discount.
 - **Position xGI hyperprior `k = 8`.** The position mean itself has a huge `n`, so this barely moves it. It only matters if the live sample is empty.
 - **Team xG `k = 10`.** Club xG/game correlates strongly year to year (SPI / xG tables persist). Last season is ~38 matches; treating it as 10 equivalent games is the usual early-season discount. 50/50 at GW10, not GW8.
@@ -107,7 +107,9 @@ E[minutes] = P(play) × minutes|play
 P(60+) = P(play) × P(60+|play)
 ```
 
-A nailed keeper (4×90) shrinks toward other *playing* keepers (~88–90), not toward the squad of unused third-choice GKs. Unused players shrink P(play) toward other unused players. Rotation is its own cluster so neither group contaminates the other.
+A nailed keeper (4×90) shrinks toward other *playing* keepers (~88–90), not toward the squad of unused third-choice GKs. A nailed centre-back shrinks minutes|play and P(60+|play) toward other **starters** (mean ≥60' when they play), not toward 20-minute subs. Unused players shrink P(play) toward other unused players. Rotation is its own P(play) cluster so neither group contaminates the other.
 
-No start/sub classifier: we never assume a start is 90 minutes. A 45-minute every week is not half a clean sheet.
+The cluster mean for minutes/P(60+) treats each player as one observation. Using `n =` every defender appearance (~400 after four GWs) made the position prior look certain at the mixture average (~0.76 P(60+)), which no individual can outvote in 38 games.
+
+No start/sub classifier: we never assume a start is 90 minutes. A 45-minute every week is a cameo role, not half a clean sheet.
 

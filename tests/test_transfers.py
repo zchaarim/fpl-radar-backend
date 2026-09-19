@@ -68,3 +68,14 @@ def test_availability_flags_on_transfer_options() -> None:
     assert flagged
     assert "flag yellow" in flagged[0].in_flag
     assert "75% next GW" in flagged[0].in_flag
+
+
+def test_rank_limit_is_per_position() -> None:
+    boot = bootstrap_sample()
+    squad = _squad()
+    options = rank_replacements(squad, boot, horizon=1, limit=1)
+    from collections import Counter
+
+    counts = Counter(o.element_type for o in options)
+    assert all(n <= 1 for n in counts.values())
+    assert set(counts) <= {1, 2, 3, 4}
