@@ -26,4 +26,5 @@ FIXTURES_TTL_SECONDS = 60 * 60
 ELEMENT_SUMMARY_TTL_SECONDS = 6 * 60 * 60
 ENTRY_TTL_SECONDS = 15 * 60
 UNDERSTAT_TTL_SECONDS = 6 * 60 * 60
+UNDERSTAT_PRIOR_TTL_SECONDS = 7 * 24 * 60 * 60  # previous season is frozen
 AUTH_TTL_SECONDS = 0  # never cache authenticated responses on disk

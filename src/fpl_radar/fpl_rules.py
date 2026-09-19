@@ -1,9 +1,24 @@
+"""FPL constants used by the model.
+
+Scoring, squad size, and DefCon thresholds are the published game rules (or
+bootstrap `game_settings` when present). Everything else is a modelling choice:
+
+- Shrinkage *k* values: equivalent sample sizes. See comments in this file and
+  docs/shrinkage.md (why 4 vs 8 vs 18 vs 30).
+- Minutes-when-playing / P(60+|play) / P(play) clusters: typical Premier League
+  patterns (keepers finish games; unused squad GKs should not pull Raya to 70').
+  Magnitudes are priors, overwritten by live GWs as *n* grows.
+- xG/xA/90 and card/90 fallbacks: copies of 2025/26 Understat league rates
+  (minutes-weighted, ≥180'). ``sync`` does not rewrite this file; live priors
+  are computed from last season’s dump at feature-build time. These dicts are
+  used only if that dump is missing.
+"""
+
 from __future__ import annotations
 
 from typing import Any
 
-# Fallback FPL scoring when bootstrap game_settings omit a value.
-# DefCon and 2025/26+ extras are not always in game_settings.
+# --- Official FPL rules (high confidence). Scoring falls back if bootstrap omits a key. ---
 SCORING_DEFAULTS: dict[str, int | float] = {
     "minutes_0_59": 1,
     "minutes_60_plus": 2,
@@ -39,23 +54,86 @@ ELEMENT_TYPE_FWD = 4
 MAX_PLAYERS_PER_CLUB = 3
 SQUAD_SIZE = 15
 STARTING_XI = 11
-DEFCON_PRIOR_GAMES = 6
-BONUS_PRIOR_GAMES = 6
-SAVES_PRIOR_GAMES = 6
-YELLOW_PRIOR_GAMES = 6
-RED_PRIOR_GAMES = 18
+
+# Shrinkage k: equivalent sample size of the prior. After n = k, 50/50 sample vs prior.
+# Chosen from how fast each signal stabilizes (not an FPL backtest). See docs/shrinkage.md.
+DEFCON_PRIOR_GAMES = 8
+BONUS_PRIOR_GAMES = 8
+SAVES_PRIOR_GAMES = 8
+YELLOW_PRIOR_GAMES = 8
+RED_PRIOR_GAMES = 30
 MIN_BONUS_CURVE_BUCKETS = 8
+XGI_PRIOR_90S = 8
+POSITION_XGI_PRIOR_90S = 8
+TEAM_STRENGTH_PRIOR_GAMES = 10
+FINISHING_PRIOR_GAMES = 18
+HOME_SPLIT_PRIOR_GAMES = 10
+MIN_PRIOR_MINUTES = 180
+MINUTES_PRIOR_GAMES = 4
+# P(play) = share of scheduled GWs with minutes > 0.
+# unused:  p_played <= MINUTES_UNUSED_RATE  (true DNPs: 0 minutes every GW)
+# rotation: MINUTES_UNUSED_RATE < p_played < MINUTES_REGULAR_RATE
+# regular:  p_played >= MINUTES_REGULAR_RATE  (played in at least 60% of GWs)
+# There is no MINUTES_ROTATION_RATE; rotation is the open band between the two.
+MINUTES_UNUSED_RATE = 0.0
+MINUTES_REGULAR_RATE = 0.6
+
+# Minutes *when they play* (not squad averages including DNP). Keepers are almost never subbed.
+# Weak hyperpriors when the live sample of playing players is empty.
+# Confidence: directional (GK ~90, outfield lower); magnitudes are typical PL, not a paper.
+MINUTES_WHEN_PLAYING = {
+    ELEMENT_TYPE_GKP: 88.0,
+    ELEMENT_TYPE_DEF: 82.0,
+    ELEMENT_TYPE_MID: 75.0,
+    ELEMENT_TYPE_FWD: 72.0,
+}
+P60_WHEN_PLAYING = {
+    ELEMENT_TYPE_GKP: 0.95,
+    ELEMENT_TYPE_DEF: 0.88,
+    ELEMENT_TYPE_MID: 0.75,
+    ELEMENT_TYPE_FWD: 0.72,
+}
+# Typical P(play) *inside* a cluster, used as the shrinkage prior.
+# Not cutoffs — cutoffs are MINUTES_UNUSED_RATE / MINUTES_REGULAR_RATE above.
+P_PLAYED_REGULAR = {
+    ELEMENT_TYPE_GKP: 0.92,
+    ELEMENT_TYPE_DEF: 0.88,
+    ELEMENT_TYPE_MID: 0.82,
+    ELEMENT_TYPE_FWD: 0.80,
+}
+P_PLAYED_ROTATION = {
+    ELEMENT_TYPE_GKP: 0.40,
+    ELEMENT_TYPE_DEF: 0.45,
+    ELEMENT_TYPE_MID: 0.45,
+    ELEMENT_TYPE_FWD: 0.45,
+}
+P_PLAYED_UNUSED = {
+    ELEMENT_TYPE_GKP: 0.08,
+    ELEMENT_TYPE_DEF: 0.12,
+    ELEMENT_TYPE_MID: 0.12,
+    ELEMENT_TYPE_FWD: 0.15,
+}
+
+# Last-resort if Understat last season is missing. Snapshot: EPL 2025/26,
+# minutes-weighted among players with ≥180' (Understat position letter).
+# Live path recomputes this from the prior dump using FPL element_type.
+XGI90_DEFAULT = {
+    ELEMENT_TYPE_GKP: (0.000, 0.004),
+    ELEMENT_TYPE_DEF: (0.068, 0.071),
+    ELEMENT_TYPE_MID: (0.118, 0.133),
+    ELEMENT_TYPE_FWD: (0.349, 0.150),
+}
 YELLOW90_DEFAULT = {
-    ELEMENT_TYPE_GKP: 0.04,
-    ELEMENT_TYPE_DEF: 0.18,
-    ELEMENT_TYPE_MID: 0.14,
-    ELEMENT_TYPE_FWD: 0.10,
+    ELEMENT_TYPE_GKP: 0.070,
+    ELEMENT_TYPE_DEF: 0.182,
+    ELEMENT_TYPE_MID: 0.210,
+    ELEMENT_TYPE_FWD: 0.143,
 }
 RED90_DEFAULT = {
-    ELEMENT_TYPE_GKP: 0.008,
-    ELEMENT_TYPE_DEF: 0.025,
-    ELEMENT_TYPE_MID: 0.020,
-    ELEMENT_TYPE_FWD: 0.018,
+    ELEMENT_TYPE_GKP: 0.001,
+    ELEMENT_TYPE_DEF: 0.008,
+    ELEMENT_TYPE_MID: 0.004,
+    ELEMENT_TYPE_FWD: 0.003,
 }
 
 

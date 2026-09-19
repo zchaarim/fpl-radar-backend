@@ -6,6 +6,7 @@ import sys
 
 from fpl_radar.clients.auth import FplAuthClient, build_auth_client
 from fpl_radar.clients.fpl import FplClient
+from fpl_radar.identity.match import identity_coverage
 from fpl_radar.ingest.sync import default_cache, load_model_context, sync_fpl, sync_understat
 from fpl_radar.squad import load_manager_squad
 from fpl_radar.transfers.rank import rank_replacements
@@ -19,12 +20,20 @@ def cmd_sync(args: argparse.Namespace) -> int:
     fpl_stats = sync_fpl(_client())
     us_stats = sync_understat()
     ctx = load_model_context(_client())
-    matched = 0
-    if ctx.features:
-        matched = len(ctx.features.players) - len(ctx.features.unmatched_players)
     print("FPL", json.dumps(fpl_stats, default=str))
     print("Understat", json.dumps(us_stats, default=str))
-    print(f"Identity player matches {matched}/{len((ctx.bootstrap.get('elements') or []))}")
+    coverage = identity_coverage(
+        ctx.bootstrap.get("elements") or [],
+        (ctx.understat_league or {}).get("players") or [],
+        ctx.player_match,
+    )
+    print(
+        "Identity "
+        f"matched {coverage['matched']}/{coverage['understat_players']} Understat players; "
+        f"FPL roster {coverage['matched']}/{coverage['fpl_players']} "
+        f"(unmatched with minutes: FPL {coverage['unmatched_fpl_with_minutes']}, "
+        f"Understat {coverage['unmatched_understat_with_minutes']})"
+    )
     return 0
 
 
@@ -76,10 +85,16 @@ def cmd_recommend(args: argparse.Namespace) -> int:
         source = "placeholder xP from FPL ep_next"
     print(f"Top {len(options)} 1-for-1 options over {args.horizon} GW ({source})")
     for option in options:
+        flags = []
+        if option.out_flag:
+            flags.append(f"out {option.out_flag}")
+        if option.in_flag:
+            flags.append(f"in {option.in_flag}")
+        flag_txt = f"  ({'; '.join(flags)})" if flags else ""
         print(
             f"  {option.out_name} -> {option.in_name}  delta {option.delta:+.2f}  "
             f"in_xP {option.incoming_horizon_xp:.2f}  bank_after £{option.bank_after / 10:.1f}  "
-            f"[{option.price_source.value}]"
+            f"[{option.price_source.value}]{flag_txt}"
         )
     return 0
 
@@ -97,14 +112,15 @@ def cmd_xgi(args: argparse.Namespace) -> int:
     rows.sort(reverse=True)
     matched = len(features.players) - len(features.unmatched_players)
     print(
-        f"{'player':16} {'club':4} {'src':9} {'min':5} {'xG90':6} {'xA90':6} {'xGI90':6} "
-        f"{'BPS':5} {'bonE':5}  matched {matched}/{len(features.players)}"
+        f"{'player':16} {'club':4} {'src':16} {'min':5} {'xG90':6} {'xA90':6} {'xGI90':6} "
+        f"{'rawGI':6} {'BPS':5} {'bonE':5}  matched {matched}/{len(features.players)}"
     )
     for _score, eid, rates in rows[: args.limit]:
         print(
             f"{(names.get(eid) or str(eid)):16} {(teams.get(team_of.get(eid, 0)) or '?'):4} "
-            f"{rates.source:9} {rates.minutes:5.0f} {rates.xg90:6.2f} {rates.xa90:6.2f} "
-            f"{rates.xgi90:6.2f} {rates.bps_avg:5.1f} {rates.bonus_e:5.2f}"
+            f"{rates.source:16} {rates.minutes:5.0f} {rates.xg90:6.2f} {rates.xa90:6.2f} "
+            f"{rates.xgi90:6.2f} {rates.xg90_raw + rates.xa90_raw:6.2f} "
+            f"{rates.bps_avg:5.1f} {rates.bonus_e:5.2f}"
         )
     return 0
 

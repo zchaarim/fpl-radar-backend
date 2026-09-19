@@ -104,7 +104,7 @@ class FplClient:
         self,
         bootstrap: dict[str, Any] | None = None,
     ) -> dict[int, list[dict[str, float]]]:
-        """Per player per finished GW: minutes, defcon, bps, bonus, saves, cards."""
+        """Per player per finished GW, including 0-minute DNPs (needed for E[minutes])."""
         data = bootstrap or self.bootstrap_static()
         by_player: dict[int, list[dict[str, float]]] = {}
         for event_id in self.finished_event_ids(data):
@@ -112,8 +112,6 @@ class FplClient:
             for element in live.get("elements") or []:
                 stats = element.get("stats") or {}
                 minutes = float(stats.get("minutes") or 0)
-                if minutes <= 0:
-                    continue
                 pid = int(element["id"])
                 by_player.setdefault(pid, []).append(
                     {

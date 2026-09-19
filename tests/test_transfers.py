@@ -55,3 +55,16 @@ def test_rank_includes_affordable_same_position() -> None:
     assert options[0].delta >= options[-1].delta
     mids = [o for o in options if o.element_out == 10]
     assert any(o.element_in == 16 for o in mids)
+
+
+def test_availability_flags_on_transfer_options() -> None:
+    boot = bootstrap_sample()
+    boot["elements"][15]["status"] = "d"
+    boot["elements"][15]["chance_of_playing_next_round"] = 75
+    boot["elements"][15]["news"] = "Knock"
+    squad = _squad()
+    options = rank_replacements(squad, boot, horizon=1, limit=50)
+    flagged = [o for o in options if o.element_in == 16]
+    assert flagged
+    assert "flag yellow" in flagged[0].in_flag
+    assert "75% next GW" in flagged[0].in_flag

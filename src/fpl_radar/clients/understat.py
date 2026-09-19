@@ -62,10 +62,12 @@ class UnderstatClient:
         self,
         league: str = config.UNDERSTAT_LEAGUE,
         season: int = config.UNDERSTAT_SEASON,
+        ttl_seconds: int | None = None,
     ) -> dict[str, Any]:
         key = f"understat_league_{league}_{season}"
+        ttl = config.UNDERSTAT_TTL_SECONDS if ttl_seconds is None else ttl_seconds
         if self.cache:
-            cached = self.cache.get(key, ttl_seconds=config.UNDERSTAT_TTL_SECONDS)
+            cached = self.cache.get(key, ttl_seconds=ttl)
             if cached is not None:
                 return cached
 
