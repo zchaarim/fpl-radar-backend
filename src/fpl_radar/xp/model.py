@@ -7,12 +7,12 @@ from fpl_radar.features import (
     FeatureSet,
     build_feature_set,
     expected_goals_conceded_points,
-    expected_minutes,
     fixture_goals_against_lambda,
     fixture_multiplier,
+    minutes_points,
     p_card_in_minutes,
-    p_play_sixty,
     poisson_clean_sheet,
+    project_minutes,
 )
 from fpl_radar.fpl_rules import (
     ELEMENT_TYPE_DEF,
@@ -64,15 +64,6 @@ def player_fixtures(
     return out
 
 
-def _minutes_points(exp_mins: float, table: dict[str, int | float]) -> float:
-    if exp_mins <= 0:
-        return 0.0
-    if exp_mins >= 60:
-        return float(table["minutes_60_plus"])
-    p60 = exp_mins / 60.0
-    return float(table["minutes_0_59"]) * (1.0 - p60) + float(table["minutes_60_plus"]) * p60
-
-
 def expected_points(player_id: int, event_ids: list[int], context: ModelContext) -> PlayerXp:
     players = {int(p["id"]): p for p in context.bootstrap.get("elements") or []}
     player = players.get(int(player_id)) or {}
@@ -105,7 +96,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
         from fpl_radar.features import fpl_player_rates
 
         rates = fpl_player_rates(player)
-    exp_mins = expected_minutes(player, rates)
+    exp_mins, p60, p_played = project_minutes(player, rates)
     element_type = int(player.get("element_type") or 0)
     team_id = int(player.get("team") or 0)
     goal_pts = float(table[GOAL_KEYS.get(element_type, "goal_mid")])
@@ -115,7 +106,6 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
     gc_pts = float(table["goals_conceded_points"])
     defcon_pts = float(table["defcon_points"])
     share_mins = exp_mins / 90.0
-    p60 = p_play_sixty(exp_mins)
     gets_gc = element_type in {ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF}
     is_gk = element_type == ELEMENT_TYPE_GKP
     defcon_p = rates.defcon_p if not is_gk else 0.0
@@ -166,7 +156,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             gw_saves += save_xp
             gw_cards += card_xp
             gw_lambda += lam_ga
-            gw_pts += _minutes_points(exp_mins, table)
+            gw_pts += minutes_points(p_played, p60, table)
             gw_pts += xg * goal_pts
             gw_pts += xa * assist_pts
             gw_pts += cs_xp
@@ -179,6 +169,7 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
         event_break[str(event_id)] = {
             "minutes": exp_mins,
             "p60": round(p60, 4),
+            "p_played": round(p_played, 4),
             "xg": round(gw_xg, 4),
             "xa": round(gw_xa, 4),
             "xgi": round(gw_xg + gw_xa, 4),

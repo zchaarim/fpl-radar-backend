@@ -64,3 +64,27 @@ def test_regular_yellows_feed_negative_xp() -> None:
     cards = xp.breakdown["events"]["2"]["cards_xp"]
     assert cards < 0
     assert cards > -0.7
+
+
+def test_last_season_cards_set_role_prior() -> None:
+    boot = bootstrap_sample()
+    prior = {
+        "teams": _us_league()["teams"],
+        "players": [
+            {
+                "id": "77",
+                "player_name": "MID2 MID2",
+                "team_title": "Chelsea",
+                "games": "30",
+                "time": "2700",
+                "xG": "1.0",
+                "xA": "1.0",
+                "yellow_cards": "12",
+                "red_cards": "1",
+            }
+        ],
+    }
+    plain = build_feature_set(boot, _us_league())
+    with_prior = build_feature_set(boot, _us_league(), understat_prior=prior)
+    assert with_prior.players[8].yellow90 > plain.players[8].yellow90
+    assert abs(with_prior.players[8].yellow90 - 0.4) < 0.05

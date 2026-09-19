@@ -30,11 +30,13 @@ Season or single-GW fixtures, FPL difficulty, finished-match stats.
 
 ### `element-summary/{element_id}/` — `FplClient.element_summary`
 
-Remaining fixtures, this-season history, previous seasons. Fetch lazily; do not download every player on every `sync`.
+Remaining fixtures, this-season history, previous seasons (`history_past`). Fetch lazily for a single player. Do **not** download every player on `sync` — FPL has no bulk history endpoint, and a full-squad walk hangs for minutes.
+
+Last-season card/90 priors use Understat’s previous-season league dump (`yellow_cards`, `red_cards`, `time`), the same file as xGI priors.
 
 ### `event/{event_id}/live/` — `FplClient.event_live`
 
-Per-player GW stats and points explainers (minutes, goals, DefCon, BPS, bonus, saves, cards, xG fields when present). `FplClient.live_match_log` stacks finished GWs into per-player minutes / DefCon / BPS / bonus / saves / cards rows for the xP model.
+Per-player GW stats and points explainers (minutes, goals, DefCon, BPS, bonus, saves, cards, xG fields when present). `FplClient.live_match_log` stacks finished GWs including **0-minute** rows so expected minutes can treat DNPs as zeros. DefCon/bonus/saves/cards still ignore those zeros via their own minute filters.
 
 ### `event-status/` — `FplClient.event_status`
 

@@ -12,10 +12,10 @@ Do not depend on `understatapi` / `py-understat`; they lag site changes.
 2. `GET https://understat.com/getLeagueData/EPL/2026` with `User-Agent` and `X-Requested-With: XMLHttpRequest`.
 3. JSON object with:
    - `teams` — `{id, title, history[]}` per club. Each history row is a match: `h_a`, `xG`, `xGA`, `scored`, `missed`, …
-   - `players` — `id`, `player_name`, `team_title`, `time`, `games`, `xG`, `xA`, shots, …
+   - `players` — `id`, `player_name`, `team_title`, `time`, `games`, `xG`, `xA`, `yellow_cards`, `red_cards`, shots, …
    - `dates` — season fixtures with team-level `xG` and `goals`
 
-That league dump is enough for player xGI/90 and team attack/defence (including home/away). `getTeamData` is not required for the current model.
+That league dump is enough for player xGI/90, last-season card/90 priors, and team attack/defence (including home/away). `getTeamData` is not required for the current model.
 
 `fpl-radar-backend sync` caches the current season (~6h) and last season (~7 days). `xgi` prints shrunk per-90 rates (`src` is `understat+prior` when last year was used). Unmatched names go in `data/mappings/overrides.json`.
 

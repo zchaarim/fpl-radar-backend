@@ -15,6 +15,14 @@ from fpl_radar.fpl_rules import (
     HOME_SPLIT_PRIOR_GAMES,
     MIN_BONUS_CURVE_BUCKETS,
     MIN_PRIOR_MINUTES,
+    MINUTES_PRIOR_GAMES,
+    MINUTES_REGULAR_RATE,
+    MINUTES_UNUSED_RATE,
+    MINUTES_WHEN_PLAYING,
+    P60_WHEN_PLAYING,
+    P_PLAYED_REGULAR,
+    P_PLAYED_ROTATION,
+    P_PLAYED_UNUSED,
     POSITION_XGI_PRIOR_90S,
     SAVES_PRIOR_GAMES,
     TEAM_STRENGTH_PRIOR_GAMES,
@@ -104,6 +112,14 @@ class PlayerRates:
     red_p: float = 0.0
     yellow_games: int = 0
     cards_source: str = "none"
+    exp_mins: float = 0.0
+    p60: float = 0.0
+    p_played: float = 0.0
+    mins_when_played: float = 0.0
+    p60_when_played: float = 0.0
+    minutes_n: int = 0
+    minutes_apps: int = 0
+    minutes_source: str = "none"
 
 
 @dataclass
@@ -360,28 +376,265 @@ def fpl_player_rates(player: dict[str, Any]) -> PlayerRates:
     )
 
 
-def expected_minutes(player: dict[str, Any], rates: PlayerRates) -> float:
-    chance = player.get("chance_of_playing_next_round")
-    if chance is not None and _f(chance) == 0:
+def _availability_scale(player: dict[str, Any]) -> float:
+    status = (player.get("status") or "a").lower()
+    if status in {"i", "s", "u", "n"}:
         return 0.0
+    chance = player.get("chance_of_playing_next_round")
+    if chance is not None:
+        return max(0.0, min(1.0, _f(chance) / 100.0))
+    return 1.0
+
+
+def project_minutes(player: dict[str, Any], rates: PlayerRates) -> tuple[float, float, float]:
+    """Return (exp_mins, p60, p_played) after current availability."""
+    scale = _availability_scale(player)
+    if scale <= 0:
+        return 0.0, 0.0, 0.0
+    if rates.minutes_source != "none":
+        exp = min(90.0, rates.exp_mins * scale)
+        p60 = min(1.0, rates.p60 * scale)
+        played = min(1.0, rates.p_played * scale)
+        p60 = min(p60, played)
+        return exp, p60, played
+    # Fallback when there is no live GW series.
     if rates.games > 0 and rates.minutes > 0:
         mins = min(90.0, rates.minutes / max(rates.games, 1.0))
     else:
         mins = 60.0 if _i(player.get("starts")) else 15.0
-    if chance is not None:
-        mins *= _f(chance) / 100.0
-    status = (player.get("status") or "a").lower()
-    if status in {"i", "s", "u", "n"}:
-        mins = 0.0
-    return max(0.0, min(90.0, mins))
+    mins *= scale
+    mins = max(0.0, min(90.0, mins))
+    p60 = p_play_sixty(mins) * scale
+    played = (1.0 if mins > 0 else 0.0) * scale
+    return mins, min(p60, played), played
+
+
+def expected_minutes(player: dict[str, Any], rates: PlayerRates) -> float:
+    exp, _p60, _played = project_minutes(player, rates)
+    return exp
+
+
+def minutes_points(p_played: float, p60: float, table: dict[str, int | float]) -> float:
+    """FPL: 1–59 minutes = 1 pt, 60+ = 2 pts. Do not treat E[minutes] as a 60-pt ramp."""
+    base = float(table["minutes_0_59"])
+    extra = float(table["minutes_60_plus"]) - base
+    return max(0.0, p_played) * base + max(0.0, min(p60, p_played)) * extra
+
+
+def _play_cluster(p_played: float) -> str:
+    if p_played <= MINUTES_UNUSED_RATE:
+        return "unused"
+    if p_played >= MINUTES_REGULAR_RATE:
+        return "regular"
+    return "rotation"
+
+
+def position_minutes(
+    fpl_players: list[dict[str, Any]],
+    rates_by_id: dict[int, PlayerRates],
+    element_type: int,
+) -> tuple[float, float, float, float, float]:
+    """Return (mins|play, p60|play, p_play regular / rotation / unused)."""
+    default_m = MINUTES_WHEN_PLAYING.get(element_type, 75.0)
+    default_p60 = P60_WHEN_PLAYING.get(element_type, 0.75)
+    mins_num = 0.0
+    mins_den = 0.0
+    p60_num = 0.0
+    clusters: dict[str, list[float]] = {"regular": [], "rotation": [], "unused": []}
+    for player in fpl_players:
+        if int(player.get("element_type") or 0) != element_type:
+            continue
+        rates = rates_by_id.get(int(player["id"]))
+        if rates is None or rates.minutes_n < 2:
+            continue
+        if rates.minutes_apps > 0:
+            w = float(rates.minutes_apps)
+            mins_num += rates.mins_when_played * w
+            mins_den += w
+            p60_num += rates.p60_when_played * w
+        clusters[_play_cluster(rates.p_played)].append(rates.p_played)
+    n_m = mins_den
+    return (
+        shrink_mean(mins_num / n_m if n_m else default_m, default_m, n_m, MINUTES_PRIOR_GAMES),
+        shrink_mean(p60_num / n_m if n_m else default_p60, default_p60, n_m, MINUTES_PRIOR_GAMES),
+        shrink_mean(
+            sum(clusters["regular"]) / len(clusters["regular"]) if clusters["regular"] else P_PLAYED_REGULAR[element_type],
+            P_PLAYED_REGULAR.get(element_type, 0.85),
+            float(len(clusters["regular"])),
+            MINUTES_PRIOR_GAMES,
+        ),
+        shrink_mean(
+            sum(clusters["rotation"]) / len(clusters["rotation"]) if clusters["rotation"] else P_PLAYED_ROTATION[element_type],
+            P_PLAYED_ROTATION.get(element_type, 0.45),
+            float(len(clusters["rotation"])),
+            MINUTES_PRIOR_GAMES,
+        ),
+        shrink_mean(
+            sum(clusters["unused"]) / len(clusters["unused"]) if clusters["unused"] else P_PLAYED_UNUSED[element_type],
+            P_PLAYED_UNUSED.get(element_type, 0.12),
+            float(len(clusters["unused"])),
+            MINUTES_PRIOR_GAMES,
+        ),
+    )
+
+
+def attach_minutes(
+    rates_by_id: dict[int, PlayerRates],
+    fpl_players: list[dict[str, Any]],
+    live_matches: dict[int, list[dict[str, float]]] | None,
+    finished_gws: int = 0,
+) -> dict[int, PlayerRates]:
+    """Empirical P(play) × minutes|play. Unused squad players do not pull starters toward 70'.
+
+    Appearances (minutes > 0) set how long they play when selected. DNPs only
+    affect P(play). Regulars shrink P(play) toward other regulars; backups toward backups.
+    """
+    live_matches = live_matches or {}
+    seeded: dict[int, PlayerRates] = {}
+    for player in fpl_players:
+        eid = int(player["id"])
+        rates = rates_by_id.get(eid) or fpl_player_rates(player)
+        etype = int(player.get("element_type") or 0)
+        default_m = MINUTES_WHEN_PLAYING.get(etype, 75.0)
+        default_p60 = P60_WHEN_PLAYING.get(etype, 0.75)
+        series = [float(row.get("minutes") or 0) for row in live_matches.get(eid, [])]
+        if series:
+            n = len(series)
+            apps = [m for m in series if m > 0]
+            n_apps = len(apps)
+            played = n_apps / n
+            mins_w = sum(apps) / n_apps if n_apps else default_m
+            p60_w = sum(1.0 for m in apps if m >= 60) / n_apps if n_apps else default_p60
+            source = "live"
+        else:
+            n = max(finished_gws, 0)
+            season_mins = _f(player.get("minutes"))
+            starts = _f(player.get("starts"))
+            n_apps = int(starts) if starts else (1 if season_mins > 0 else 0)
+            if n > 0:
+                played = min(1.0, n_apps / n)
+                mins_w = min(90.0, season_mins / n_apps) if n_apps else default_m
+                p60_w = p_play_sixty(mins_w)
+                source = "season"
+            else:
+                played = 1.0 if season_mins > 0 else 0.0
+                mins_w = min(90.0, season_mins / max(starts, 1.0)) if season_mins else default_m
+                p60_w = p_play_sixty(mins_w)
+                n = 0
+                source = "none"
+        seeded[eid] = replace(
+            rates,
+            mins_when_played=min(90.0, mins_w),
+            p60_when_played=min(1.0, p60_w),
+            p_played=min(1.0, played),
+            exp_mins=min(90.0, played * mins_w),
+            p60=min(1.0, played * p60_w),
+            minutes_n=n,
+            minutes_apps=n_apps,
+            minutes_source=source,
+        )
+    pos = {
+        etype: position_minutes(fpl_players, seeded, etype)
+        for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
+    }
+    updated: dict[int, PlayerRates] = {}
+    for player in fpl_players:
+        eid = int(player["id"])
+        rates = seeded.get(eid) or fpl_player_rates(player)
+        etype = int(player.get("element_type") or 0)
+        pm, pp60, preg, prot, punused = pos.get(etype, (75.0, 0.75, 0.85, 0.45, 0.12))
+        n_apps = rates.minutes_apps
+        n = rates.minutes_n
+        mins_w = shrink_mean(rates.mins_when_played, pm, n_apps, MINUTES_PRIOR_GAMES)
+        p60_w = shrink_mean(rates.p60_when_played, pp60, n_apps, MINUTES_PRIOR_GAMES)
+        cluster = _play_cluster(rates.p_played)
+        play_prior = {"regular": preg, "rotation": prot, "unused": punused}[cluster]
+        played = shrink_mean(rates.p_played, play_prior, n, MINUTES_PRIOR_GAMES)
+        exp = played * mins_w
+        p60 = min(played, played * p60_w)
+        updated[eid] = replace(
+            rates,
+            mins_when_played=max(0.0, min(90.0, mins_w)),
+            p60_when_played=max(0.0, min(1.0, p60_w)),
+            exp_mins=max(0.0, min(90.0, exp)),
+            p60=max(0.0, min(1.0, p60)),
+            p_played=max(0.0, min(1.0, played)),
+        )
+    for eid, rates in rates_by_id.items():
+        if eid not in updated:
+            updated[eid] = rates
+    return updated
+
+
+def season_role_xgi90(
+    fpl_players: list[dict[str, Any]],
+    prior_player_map: dict[int, str],
+    prior_rates: dict[str, PlayerRates],
+) -> dict[int, tuple[float, float]]:
+    """Minutes-weighted last-season xG/90 and xA/90 by current FPL position."""
+    totals: dict[int, list[float]] = {
+        etype: [0.0, 0.0, 0.0] for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
+    }
+    for player in fpl_players:
+        etype = int(player.get("element_type") or 0)
+        if etype not in totals:
+            continue
+        prev = prior_rates.get(prior_player_map.get(int(player["id"])) or "")
+        if prev is None or prev.minutes < MIN_PRIOR_MINUTES:
+            continue
+        n90 = prev.minutes / 90.0
+        totals[etype][0] += n90 * (prev.xg90_raw or prev.xg90)
+        totals[etype][1] += n90 * (prev.xa90_raw or prev.xa90)
+        totals[etype][2] += n90
+    out: dict[int, tuple[float, float]] = {}
+    for etype, (xg, xa, n90) in totals.items():
+        if n90 <= 0:
+            continue
+        out[etype] = (xg / n90, xa / n90)
+    return out
+
+
+def season_role_card90(
+    fpl_players: list[dict[str, Any]],
+    prior_player_map: dict[int, str],
+    prior_players: list[dict[str, Any]] | None,
+) -> dict[int, tuple[float, float]]:
+    """Minutes-weighted last-season yellow/90 and red/90 from Understat (same dump as xGI)."""
+    by_id = {str(row.get("id") or ""): row for row in prior_players or []}
+    totals: dict[int, list[float]] = {
+        etype: [0.0, 0.0, 0.0] for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
+    }
+    for player in fpl_players:
+        etype = int(player.get("element_type") or 0)
+        if etype not in totals:
+            continue
+        row = by_id.get(prior_player_map.get(int(player["id"])) or "")
+        if not row:
+            continue
+        if row.get("yellow_cards") is None and row.get("red_cards") is None:
+            continue
+        minutes = _f(row.get("time"))
+        if minutes < MIN_PRIOR_MINUTES:
+            continue
+        totals[etype][0] += _f(row.get("yellow_cards"))
+        totals[etype][1] += _f(row.get("red_cards"))
+        totals[etype][2] += minutes
+    out: dict[int, tuple[float, float]] = {}
+    for etype, (yellows, reds, minutes) in totals.items():
+        n90 = minutes / 90.0
+        if n90 <= 0:
+            continue
+        out[etype] = (yellows / n90, reds / n90)
+    return out
 
 
 def position_xgi90(
     fpl_players: list[dict[str, Any]],
     rates_by_id: dict[int, PlayerRates],
     element_type: int,
+    hyperprior: tuple[float, float] | None = None,
 ) -> tuple[float, float]:
-    default_xg, default_xa = XGI90_DEFAULT.get(element_type, (0.2, 0.15))
+    default_xg, default_xa = hyperprior or XGI90_DEFAULT.get(element_type, (0.2, 0.15))
     weighted_xg = 0.0
     weighted_xa = 0.0
     n90_sum = 0.0
@@ -389,7 +642,7 @@ def position_xgi90(
         if int(player.get("element_type") or 0) != element_type:
             continue
         rates = rates_by_id.get(int(player["id"]))
-        if rates is None or rates.minutes < 180:
+        if rates is None or rates.minutes < MIN_PRIOR_MINUTES:
             continue
         n90 = rates.minutes / 90.0
         raw_xg = rates.xg90_raw or rates.xg90
@@ -406,9 +659,11 @@ def attach_xgi_shrink(
     rates_by_id: dict[int, PlayerRates],
     fpl_players: list[dict[str, Any]],
     season_priors: dict[int, tuple[float, float]] | None = None,
+    role_priors: dict[int, tuple[float, float]] | None = None,
 ) -> dict[int, PlayerRates]:
+    role_priors = role_priors or {}
     pos = {
-        etype: position_xgi90(fpl_players, rates_by_id, etype)
+        etype: position_xgi90(fpl_players, rates_by_id, etype, role_priors.get(etype))
         for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
     }
     season_priors = season_priors or {}
@@ -467,8 +722,16 @@ def build_feature_set(
         build_team_strengths(us_teams, priors=team_priors) if us_teams else ({}, 1.4, 1.0, 1.0)
     )
     us_rates = player_understat_rates(us_players)
-    prior_rates = player_understat_rates((understat_prior or {}).get("players") or [])
-    prior_ids = map_understat_players(us_players, (understat_prior or {}).get("players") or [])
+    prior_us_players = (understat_prior or {}).get("players") or []
+    prior_us_teams = (understat_prior or {}).get("teams") or {}
+    prior_rates = player_understat_rates(prior_us_players)
+    prior_ids = map_understat_players(us_players, prior_us_players)
+    prior_team_map = match_teams(fpl_teams, prior_us_teams, overrides) if prior_us_teams else {}
+    prior_player_map = (
+        match_players(fpl_players, prior_us_players, prior_team_map, fpl_teams, overrides)
+        if prior_us_players
+        else {}
+    )
 
     teams: dict[int, TeamStrength] = {}
     for fpl_id, us_id in team_map.items():
@@ -494,7 +757,11 @@ def build_feature_set(
         if prev is None or prev.minutes < MIN_PRIOR_MINUTES:
             continue
         season_priors[int(eid)] = (prev.xg90_raw or prev.xg90, prev.xa90_raw or prev.xa90)
-    players = attach_xgi_shrink(players, fpl_players, season_priors)
+    role_xgi = season_role_xgi90(fpl_players, prior_player_map, prior_rates)
+    role_cards = season_role_card90(fpl_players, prior_player_map, prior_us_players)
+    players = attach_xgi_shrink(players, fpl_players, season_priors, role_xgi)
+    finished_gws = sum(1 for event in (bootstrap.get("events") or []) if event.get("finished"))
+    players = attach_minutes(players, fpl_players, live_matches, finished_gws)
 
     if live_matches and not live_defcon:
         live_defcon = {
@@ -509,7 +776,7 @@ def build_feature_set(
         live_matches,
         scoring_table(bootstrap.get("game_settings")),
     )
-    players = attach_cards(players, fpl_players, live_matches)
+    players = attach_cards(players, fpl_players, live_matches, role_cards)
     return FeatureSet(
         teams=teams,
         players=players,
@@ -940,17 +1207,23 @@ def position_card90(
     element_type: int,
     field: str,
     default: float,
+    hyperprior: float | None = None,
+    prior_games: int = YELLOW_PRIOR_GAMES,
 ) -> float:
-    vals: list[float] = []
+    prior = default if hyperprior is None else hyperprior
+    minutes_sum = 0.0
+    cards_sum = 0.0
     for player in players:
         if int(player.get("element_type") or 0) != element_type:
             continue
         minutes = _f(player.get("minutes"))
-        if minutes < 180:
+        if minutes < MIN_PRIOR_MINUTES:
             continue
-        n90 = minutes / 90.0
-        vals.append(_f(player.get(field)) / n90)
-    return sum(vals) / len(vals) if vals else default
+        minutes_sum += minutes
+        cards_sum += _f(player.get(field))
+    n90 = minutes_sum / 90.0
+    observed = cards_sum / n90 if n90 else prior
+    return shrink_mean(observed, prior, n90, prior_games)
 
 
 def live_card_record(rows: list[dict[str, float]], field: str) -> tuple[int, float, int, float]:
@@ -988,14 +1261,30 @@ def attach_cards(
     rates_by_id: dict[int, PlayerRates],
     fpl_players: list[dict[str, Any]],
     live_matches: dict[int, list[dict[str, float]]] | None,
+    role_priors: dict[int, tuple[float, float]] | None = None,
 ) -> dict[int, PlayerRates]:
     live_matches = live_matches or {}
+    role_priors = role_priors or {}
     pos_y = {
-        etype: position_card90(fpl_players, etype, "yellow_cards", YELLOW90_DEFAULT[etype])
+        etype: position_card90(
+            fpl_players,
+            etype,
+            "yellow_cards",
+            YELLOW90_DEFAULT[etype],
+            role_priors[etype][0] if etype in role_priors else None,
+            YELLOW_PRIOR_GAMES,
+        )
         for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
     }
     pos_r = {
-        etype: position_card90(fpl_players, etype, "red_cards", RED90_DEFAULT[etype])
+        etype: position_card90(
+            fpl_players,
+            etype,
+            "red_cards",
+            RED90_DEFAULT[etype],
+            role_priors[etype][1] if etype in role_priors else None,
+            RED_PRIOR_GAMES,
+        )
         for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
     }
     updated: dict[int, PlayerRates] = {}

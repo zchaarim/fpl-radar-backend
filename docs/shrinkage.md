@@ -11,9 +11,9 @@ estimate = (n × observed + k × prior) / (n + k)
 - `n` — how much data this player/team has (games, or 90-minute equivalents).
 - `k` — how much the prior is worth, in the same units. After `n = k`, the estimate is halfway between sample and prior.
 - `prior` — what we believe before this season’s sample. **Not** a blend of many past years. Order of preference:
-  1. That player/club’s **previous EPL season** (Understat `season - 1`), if they have enough minutes / a full-ish campaign.
-  2. Else the **current-season** position mean (players) or **1.0** = this season’s league average (teams).
-  3. Role defaults only if even the position mean has no data.
+  1. That player/club’s **previous EPL season** (Understat xGI and cards), if they have ≥180 minutes.
+  2. Else the **current-season** position mean, which itself uses last season’s position rate as its prior. Hardcoded role rates only if last season had nobody with 180+ minutes.
+  3. Teams: last-season strength, else **1.0** = this season’s league average.
 
 Promoted clubs and new-to-EPL players have no EPL last season, so they keep (2). We do not scrape the Championship. `sync` pulls last season once; it is cached for a week because that file does not change.
 
@@ -23,12 +23,14 @@ At ~10–15 games, team strengths are mostly data (`k = 8` → about 55–65% ob
 
 | Signal | `n` | `k` | Prior |
 | --- | --- | --- | --- |
-| xG/90, xA/90 | minutes / 90 | 8 | Last EPL season xG/90 if ≥180 minutes, else position mean |
+| xG/90, xA/90 | minutes / 90 | 8 | Last EPL season xG/90 if ≥180 minutes, else this-season position mean (that mean uses last-season position xGI as its prior) |
 | Team attack / defence | matches | 8 | Last EPL season xG vs league, else **1.0** |
 | Finishing (GF/xG, GA/xGA) | matches | 12 | Last season GF/xG, else **1.0** |
 | Home/away venue | home or away matches | 10 | Last season split, else league-wide HA |
-| DefCon / bonus / saves / yellows | games or 90s | 6 | Position mean (this season; no last-year DefCon yet) |
-| Reds | 90s | 18 | Position mean |
+| Minutes when playing / P(60+|play) | appearances (mins > 0) | 6 | Playing-player position mean (not squad DNP average) |
+| P(play) | finished GWs | 6 | Same-cluster mean: regular / rotation / unused |
+| DefCon / bonus / saves | games or 90s | 6 | Position mean (this season; no last-year DefCon yet) |
+| Yellows / reds | 90s | 6 / 18 | This-season position mean, shrunk toward last-season Understat cards/90 for players with ≥180' |
 
 ## “Regression to 1.0” (teams)
 
@@ -73,8 +75,22 @@ So every home fixture does **not** get the same bump forever. Early on, Arsenal 
 
 ## Players (xG/90, xA/90)
 
-Raw Understat (or FPL fallback) per-90 is shrunk toward the **position** mean. The position mean is a minutes-weighted average of players with ≥180 minutes, itself shrunk toward a weak role default so one Haaland does not become “the forward prior”.
+Raw Understat (or FPL fallback) per-90 is shrunk toward **that player’s last-season xG/90** when they have ≥180 EPL minutes, else the **position** mean. The position mean is a minutes-weighted average of players with ≥180 minutes this season, itself shrunk toward **last season’s minutes-weighted xG/xA/90 for that position** (same 180' cutoff). Invented role defaults are only used if last season has no sample.
 
 Players with **0 minutes** stay at 0 — they are not given the position average as if they will start.
 
 `xgi` prints both shrunk `xG90` and `rawGI` so you can see the pull.
+
+## Minutes
+
+Live GWs still **include 0-minute DNPs**, but they only affect **P(play)**. Minutes when selected and P(60+|play) are counted on appearances with minutes > 0, then:
+
+```text
+E[minutes] = P(play) × minutes|play
+P(60+) = P(play) × P(60+|play)
+```
+
+A nailed keeper (4×90) shrinks toward other *playing* keepers (~88–90), not toward the squad of unused third-choice GKs. Unused players shrink P(play) toward other unused players. Rotation is its own cluster so neither group contaminates the other.
+
+No start/sub classifier: we never assume a start is 90 minutes. A 45-minute every week is not half a clean sheet.
+

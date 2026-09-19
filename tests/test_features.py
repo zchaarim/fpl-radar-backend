@@ -145,3 +145,25 @@ def test_last_season_player_prior_pulls_xgi() -> None:
     with_prior = build_feature_set(boot, _us_league(), understat_prior=prior)
     assert with_prior.players[8].xg90 > plain.players[8].xg90
     assert "prior" in with_prior.players[8].source
+
+
+def test_last_season_position_xgi_is_role_hyperprior() -> None:
+    boot = bootstrap_sample()
+    prior = {
+        "teams": _us_league()["teams"],
+        "players": [
+            {
+                "id": "77",
+                "player_name": "MID2 MID2",
+                "team_title": "Chelsea",
+                "games": "30",
+                "time": "2700",
+                "xG": "24.0",
+                "xA": "9.0",
+            }
+        ],
+    }
+    plain = build_feature_set(boot, _us_league())
+    with_role = build_feature_set(boot, _us_league(), understat_prior=prior)
+    assert with_role.players[8].xg90 > plain.players[8].xg90
+    assert "prior" not in with_role.players[8].source

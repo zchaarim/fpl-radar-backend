@@ -9,8 +9,13 @@ Blanks score 0; doubles sum both matches.
 
 **Minutes and attack**
 
-- Expected minutes from Understat `time/games` (else FPL minutes), scaled by availability.
-- Raw xG/90 and xA/90 from Understat (unmatched: FPL `expected_goals` / `expected_assists`), then **shrunk toward last season’s xG/90** if that player has ≥180 EPL minutes last year, else the position mean (`k = 8`). See [shrinkage](shrinkage.md).
+- Minutes come from live GW appearances, **including 0-minute blanks**. We do not treat a start as 90 minutes and we do not classify start vs sub (45' is 45' either way).
+- Split **whether they play** from **how long they play when they do**:
+  - **Minutes|play** and **P(60+|play)** are averaged only over appearances with minutes > 0 (so unused keepers do not pull a nailed GK toward 70').
+  - **P(play)** shrinks toward other players in the same cluster: regular (≥60% of GWs), rotation, or unused.
+  - **E[minutes] = P(play) × minutes|play**; **P(60+) = P(play) × P(60+|play)**.
+- Both pieces shrink with `k = 6`. Availability (`status`, `chance_of_playing_next_round`) scales all three. A player who always plays 45 has ~45 E[minutes] and low P(60+), so they do **not** get CS points.
+- Raw xG/90 and xA/90 from Understat (unmatched: FPL `expected_goals` / `expected_assists`), then **shrunk toward last season’s xG/90** if that player has ≥180 EPL minutes last year, else the position mean (`k = 8`). The position hyperprior is last season’s minutes-weighted xGI/90 by FPL position. See [shrinkage](shrinkage.md).
 - Team attack/defence are venue-neutral multipliers, shrunk with `k = 8` toward **last season** (or 1.0 if promoted). Finishing (`GF/xG`) is a separate term with `k = 12`.
 - Fixture multiplier = `att` × opposition `dfn` × **that club’s** home/away factor (starts at league HA / last-season split, then follows their own home and away games).
 - `E[goals] = shrunk_xG90 × (mins/90) × multiplier` (same for assists).
@@ -57,7 +62,7 @@ Saves xP = `P(play 60+) × saves_e`.
 
 **Cards**
 
-No x-metric. Minutes-adjusted yellow/red rates from live appearances (else season totals), shrunk toward the **position** per-90 mean. Yellows use `k = 6` equivalent 90s; reds use `k = 18` because one sending-off is not a weekly event.
+No x-metric. Minutes-adjusted yellow/red rates from live appearances (else season totals), shrunk toward the **position** per-90 mean. That position mean uses last season’s Understat yellows/reds among players with ≥180 minutes (same dump as xGI). Yellows use `k = 6` equivalent 90s; reds use `k = 18` because one sending-off is not a weekly event.
 
 Blend that rate’s `P(card in 90')` with the observed share of appearances that actually had a card. Scale to expected minutes: `1 − (1 − p90)^(mins/90)`. Yellow (−1) dominates; red (−3) is a small extra.
 
@@ -88,10 +93,9 @@ Scoring for the model path is now complete (penalties/own goals still omitted as
 
 Identity is no longer the main leak: club aliases + in-club name matching should cover every Understat player. Remaining xP bias is mostly statistical.
 
-xG/xA/90 and team attack/defence now shrink ([shrinkage](shrinkage.md)). Still open:
+xG/xA/90, team strengths, and minutes now shrink ([shrinkage](shrinkage.md)). Still open:
 
-- **Minutes** are `time/games` (or FPL minutes), not a playing-time model. `p_play_sixty` is a 30–70 linear heuristic. Doubles reuse the same minutes for both fixtures. News/`chance_of_playing` is only applied when FPL sets it.
-- Fixture floor of 0.25 is arbitrary. CS/GC λ is independent Poisson; no scoreline correlation.
+- Fixture floor of 0.25 is arbitrary. CS/GC λ is independent Poisson; no scoreline correlation. Doubles still apply the same minutes model to each fixture.
 - **DefCon, bonus, saves, cards** are not opponent-adjusted. DefCon uses a Poisson per-game λ from a per-90 rate. Bonus is a player prior, not P(finish top 3 in *this* match’s BPS). Saves ignore opposition shot volume. Cards ignore referee/opponent.
 - **Horizon** copies the same per-match xP across future GWs (no extra decay beyond the rate priors, no set-piece share, no penalty taker). Own goals / penalty save-miss omitted.
 - **Transfers** rank 1-for-1 best-XI delta only: no hits, free transfers, captain 2×, or chip sequences.
