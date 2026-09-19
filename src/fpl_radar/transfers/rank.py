@@ -11,9 +11,10 @@ from fpl_radar.fpl_rules import (
     ELEMENT_TYPE_MID,
     MAX_PLAYERS_PER_CLUB,
     STARTING_XI,
+    take_top_per_position,
 )
 from fpl_radar.models import ManagerSquad, TransferOption
-from fpl_radar.xp.model import ModelContext, expected_points
+from fpl_radar.xp.model import ModelContext, expected_points, horizon_event_ids
 
 
 def club_counts(team_ids: list[int]) -> Counter[int]:
@@ -105,18 +106,6 @@ def squad_horizon_xi(
     return sum(per_event.values()), per_event
 
 
-def horizon_event_ids(bootstrap: dict[str, Any], horizon: int) -> list[int]:
-    events = bootstrap.get("events") or []
-    current = next((e for e in events if e.get("is_next") or e.get("is_current")), None)
-    start = int(current["id"]) if current else 1
-    if current and current.get("is_current") and current.get("finished"):
-        start = int(current["id"]) + 1
-    elif current and current.get("is_current") and not current.get("finished"):
-        start = int(current["id"])
-    ids = [int(e["id"]) for e in events if int(e["id"]) >= start]
-    return ids[:horizon]
-
-
 def rank_replacements(
     squad: ManagerSquad,
     bootstrap: dict[str, Any],
@@ -156,6 +145,7 @@ def rank_replacements(
                     price_source=outgoing.price_source,
                     delta=new_sum - current_sum,
                     incoming_horizon_xp=incoming_xp,
+                    element_type=int(incoming.get("element_type") or 0),
                     per_event_delta={
                         eid: new_per.get(eid, 0.0) - current_per.get(eid, 0.0) for eid in event_ids
                     },
@@ -165,6 +155,4 @@ def rank_replacements(
                 )
             )
     options.sort(key=lambda o: (o.delta, o.incoming_horizon_xp), reverse=True)
-    if limit is not None:
-        return options[:limit]
-    return options
+    return take_top_per_position(options, lambda o: o.element_type, limit)

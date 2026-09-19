@@ -1,8 +1,10 @@
 # Transfer ranking
 
-CLI: `fpl-radar-backend recommend --entry ID --horizon N [--bank 1.2] [--session-cookie ...] [--limit 20]`
+CLI: `fpl-radar-backend recommend --entry ID --horizon N [--bank 1.2] [--session-cookie ...] [--limit 10]`
 
-Library: `fpl_radar.transfers.rank_replacements`.
+`--limit` is per position: 10 GKP transfers, 10 DEF, 10 MID, 10 FWD, each sorted by delta.
+
+Library: `fpl_radar.transfers.rank_replacements`. Player tables: `fpl_radar.xp.rank_horizon_xp`, `fpl_radar.features.rank_xgi_rates`.
 
 Free transfers are **not** modelled. The output is a ranked list of legal **1-for-1** replacements. The manager decides how many to make.
 

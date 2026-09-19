@@ -20,6 +20,7 @@ from fpl_radar.fpl_rules import (
     ELEMENT_TYPE_GKP,
     ELEMENT_TYPE_MID,
     scoring_table,
+    take_top_per_position,
 )
 from fpl_radar.models import PlayerXp
 
@@ -212,4 +213,36 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             "events": event_break,
         },
         placeholder=False,
+    )
+
+
+def horizon_event_ids(bootstrap: dict[str, Any], horizon: int) -> list[int]:
+    events = bootstrap.get("events") or []
+    current = next((e for e in events if e.get("is_next") or e.get("is_current")), None)
+    start = int(current["id"]) if current else 1
+    if current and current.get("is_current") and current.get("finished"):
+        start = int(current["id"]) + 1
+    elif current and current.get("is_current") and not current.get("finished"):
+        start = int(current["id"])
+    ids = [int(e["id"]) for e in events if int(e["id"]) >= start]
+    return ids[:horizon]
+
+
+def rank_horizon_xp(
+    context: ModelContext,
+    horizon: int = 1,
+    limit_per_position: int | None = None,
+) -> list[tuple[dict[str, Any], PlayerXp]]:
+    """Players sorted by horizon xP, ``limit_per_position`` kept for each role."""
+    bootstrap = context.bootstrap
+    event_ids = horizon_event_ids(bootstrap, horizon)
+    rows: list[tuple[dict[str, Any], PlayerXp]] = []
+    for player in bootstrap.get("elements") or []:
+        xp = expected_points(int(player["id"]), event_ids, context)
+        rows.append((player, xp))
+    rows.sort(key=lambda row: row[1].horizon_sum, reverse=True)
+    return take_top_per_position(
+        rows,
+        lambda row: int(row[0].get("element_type") or 0),
+        limit_per_position,
     )

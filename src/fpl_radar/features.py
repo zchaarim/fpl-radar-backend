@@ -34,6 +34,7 @@ from fpl_radar.fpl_rules import (
     RED_PRIOR_GAMES,
     defcon_threshold,
     scoring_table,
+    take_top_per_position,
 )
 from fpl_radar.identity.match import (
     canonical_team,
@@ -130,6 +131,27 @@ class FeatureSet:
     league_ha_home: float = 1.0
     league_ha_away: float = 1.0
     unmatched_players: list[int] = field(default_factory=list)
+
+
+def rank_xgi_rates(
+    bootstrap: dict[str, Any],
+    features: FeatureSet,
+    limit_per_position: int | None = None,
+) -> list[tuple[dict[str, Any], PlayerRates]]:
+    """Players sorted by xGI/90, ``limit_per_position`` kept for each role."""
+    by_id = {int(p["id"]): p for p in bootstrap.get("elements") or []}
+    rows: list[tuple[dict[str, Any], PlayerRates]] = []
+    for eid, rates in features.players.items():
+        player = by_id.get(int(eid))
+        if player is None:
+            continue
+        rows.append((player, rates))
+    rows.sort(key=lambda row: row[1].xgi90, reverse=True)
+    return take_top_per_position(
+        rows,
+        lambda row: int(row[0].get("element_type") or 0),
+        limit_per_position,
+    )
 
 
 def shrink_mean(observed: float, prior: float, n: float, k: float) -> float:

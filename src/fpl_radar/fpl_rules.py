@@ -16,7 +16,7 @@ bootstrap `game_settings` when present). Everything else is a modelling choice:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 # --- Official FPL rules (high confidence). Scoring falls back if bootstrap omits a key. ---
 SCORING_DEFAULTS: dict[str, int | float] = {
@@ -50,6 +50,13 @@ ELEMENT_TYPE_GKP = 1
 ELEMENT_TYPE_DEF = 2
 ELEMENT_TYPE_MID = 3
 ELEMENT_TYPE_FWD = 4
+POSITION_ORDER = (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
+POSITION_LABELS = {
+    ELEMENT_TYPE_GKP: "GKP",
+    ELEMENT_TYPE_DEF: "DEF",
+    ELEMENT_TYPE_MID: "MID",
+    ELEMENT_TYPE_FWD: "FWD",
+}
 
 MAX_PLAYERS_PER_CLUB = 3
 SQUAD_SIZE = 15
@@ -189,3 +196,32 @@ def scoring_table(game_settings: dict[str, Any] | None = None) -> dict[str, int 
         if src in game_settings and game_settings[src] is not None:
             table[dest] = game_settings[src]
     return table
+
+
+T = TypeVar("T")
+
+
+def take_top_per_position(
+    items: list[T],
+    position_of: Callable[[T], int],
+    limit: int | None,
+) -> list[T]:
+    """Keep ``limit`` items for each FPL position, in ``POSITION_ORDER``.
+
+    ``items`` should already be sorted best-first. ``limit is None`` keeps all,
+    still grouped by position.
+    """
+    buckets: dict[int, list[T]] = {etype: [] for etype in POSITION_ORDER}
+    extra: list[T] = []
+    for item in items:
+        etype = position_of(item)
+        if etype not in buckets:
+            extra.append(item)
+            continue
+        if limit is None or len(buckets[etype]) < limit:
+            buckets[etype].append(item)
+    out: list[T] = []
+    for etype in POSITION_ORDER:
+        out.extend(buckets[etype])
+    out.extend(extra)
+    return out
