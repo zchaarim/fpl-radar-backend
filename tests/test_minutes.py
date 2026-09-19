@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fpl_radar.features import (
     attach_minutes,
+    availability_note,
     build_feature_set,
     fpl_player_rates,
     minutes_points,
@@ -67,10 +68,14 @@ def test_nailed_gk_not_pulled_by_unused_keepers() -> None:
     assert out[2].p_played < 0.25
 
 
-def test_injured_zeroes_projection() -> None:
+def test_injured_does_not_zero_horizon_minutes() -> None:
     boot = bootstrap_sample()
     features = build_feature_set(boot, _us_league())
     player_row = dict(boot["elements"][7])
     player_row["status"] = "i"
+    player_row["chance_of_playing_next_round"] = 0
     exp, p60, played = project_minutes(player_row, features.players[8])
-    assert exp == 0 and p60 == 0 and played == 0
+    assert exp > 0 or features.players[8].minutes_source == "none"
+    note = availability_note(player_row)
+    assert "flag red" in note
+    assert "0% next GW" in note

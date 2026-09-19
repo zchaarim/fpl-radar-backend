@@ -14,10 +14,10 @@ Blanks score 0; doubles sum both matches.
   - **Minutes|play** and **P(60+|play)** are averaged only over appearances with minutes > 0 (so unused keepers do not pull a nailed GK toward 70').
   - **P(play)** shrinks toward other players in the same cluster: regular (≥60% of GWs), rotation, or unused.
   - **E[minutes] = P(play) × minutes|play**; **P(60+) = P(play) × P(60+|play)**.
-- Both pieces shrink with `k = 6`. Availability (`status`, `chance_of_playing_next_round`) scales all three. A player who always plays 45 has ~45 E[minutes] and low P(60+), so they do **not** get CS points.
+- Both pieces shrink with `k = 4`. Injury/doubt is **not** baked into horizon minutes (`chance_of_playing_next_round` would zero every GW). Recommendations show FPL yellow/red flags instead. A player who always plays 45 has ~45 E[minutes] and low P(60+), so they do **not** get CS points.
 - Raw xG/90 and xA/90 from Understat (unmatched: FPL `expected_goals` / `expected_assists`), then **shrunk toward last season’s xG/90** if that player has ≥180 EPL minutes last year, else the position mean (`k = 8`). The position hyperprior is last season’s minutes-weighted xGI/90 by FPL position. See [shrinkage](shrinkage.md).
-- Team attack/defence are venue-neutral multipliers, shrunk with `k = 8` toward **last season** (or 1.0 if promoted). Finishing (`GF/xG`) is a separate term with `k = 12`.
-- Fixture multiplier = `att` × opposition `dfn` × **that club’s** home/away factor (starts at league HA / last-season split, then follows their own home and away games).
+- Team attack/defence are venue-neutral multipliers, shrunk with `k = 10` toward **last season** (or 1.0 if promoted). Finishing (`GF/xG`) is a separate term with `k = 18`.
+- Fixture multiplier for **player** xG/xA = opposition `dfn` × **that club’s** home/away factor. Own-team `att` is not applied again (player xG/90 already includes it). CS/GC still use full team λ = `league × opp.att × team.dfn × venue`.
 - `E[goals] = shrunk_xG90 × (mins/90) × multiplier` (same for assists).
 
 **Clean sheets and goals conceded**
@@ -31,9 +31,9 @@ Outfield only. DEF need 10 CBIT; MID/FWD need 12 CBIRT; 2 points, once per match
 
 `P(hit)` is **not** raw hit rate. It shrinks:
 
-1. Own mean actions/90 (and live-game mean) toward the **position** mean (`k = 6` games).
+1. Own mean actions/90 (and live-game mean) toward the **position** mean (`k = 8` games).
 2. Convert that shrunk mean to `P(actions ≥ threshold)` with Poisson — 9/10 is not 2 points.
-3. Blend that with the **observed** 60+ minute hit frequency, again with `k = 6`.
+3. Blend that with the **observed** 60+ minute hit frequency, again with `k = 8`.
 
 So 1/1 hits does not become 2.0 xP; 16/20 with a high average stays high. GWs come from `event/{gw}/live/` (finished weeks only). If live stats are missing, Poisson-from-mean vs the position prior is used.
 
@@ -41,7 +41,7 @@ DefCon xP = `P(play 60+) × P(hit) × 2`.
 
 **Bonus**
 
-Match bonus (0–3) from BPS rank. Two signals, both shrunk with `k = 6`:
+Match bonus (0–3) from BPS rank. Two signals, both shrunk with `k = 8`:
 
 1. **BPS level** — mean BPS per 45+ minute appearance (live `event/{gw}/live/` when present, else season `bps / starts`). Shrink toward the **position** mean, then map BPS → `E[bonus]` with the empirical live curve once there are enough BPS buckets; otherwise a rank heuristic.
 2. **Observed bonus** — mean bonus points per those appearances (live, else season `bonus / starts`).
@@ -54,7 +54,7 @@ Bonus xP = `P(play 60+) × bonus_e`.
 
 1 point per 3 saves (`⌊saves / 3⌋`). Outfield is 0.
 
-Do **not** use `avg_saves / 3`: 2.0 saves/game is usually 0 points. Shrink mean saves toward the GK mean (`k = 6`), convert with Poisson to `E[⌊saves/3⌋]`, and blend with the observed mean save points (and thus how often they actually hit 3 / 6 / 9) from live GWs. Season totals only give the Poisson-from-mean path.
+Do **not** use `avg_saves / 3`: 2.0 saves/game is usually 0 points. Shrink mean saves toward the GK mean (`k = 8`), convert with Poisson to `E[⌊saves/3⌋]`, and blend with the observed mean save points (and thus how often they actually hit 3 / 6 / 9) from live GWs. Season totals only give the Poisson-from-mean path.
 
 No fixture scaling yet — volume is the keeper’s own average.
 
@@ -62,7 +62,7 @@ Saves xP = `P(play 60+) × saves_e`.
 
 **Cards**
 
-No x-metric. Minutes-adjusted yellow/red rates from live appearances (else season totals), shrunk toward the **position** per-90 mean. That position mean uses last season’s Understat yellows/reds among players with ≥180 minutes (same dump as xGI). Yellows use `k = 6` equivalent 90s; reds use `k = 18` because one sending-off is not a weekly event.
+No x-metric. Minutes-adjusted yellow/red rates from live appearances (else season totals), shrunk toward the **position** per-90 mean. That position mean uses last season’s Understat yellows/reds among players with ≥180 minutes (same dump as xGI). Yellows use `k = 8` equivalent 90s; reds use `k = 30` because one sending-off is not a weekly event.
 
 Blend that rate’s `P(card in 90')` with the observed share of appearances that actually had a card. Scale to expected minutes: `1 − (1 − p90)^(mins/90)`. Yellow (−1) dominates; red (−3) is a small extra.
 
@@ -96,6 +96,7 @@ Identity is no longer the main leak: club aliases + in-club name matching should
 xG/xA/90, team strengths, and minutes now shrink ([shrinkage](shrinkage.md)). Still open:
 
 - Fixture floor of 0.25 is arbitrary. CS/GC λ is independent Poisson; no scoreline correlation. Doubles still apply the same minutes model to each fixture.
-- **DefCon, bonus, saves, cards** are not opponent-adjusted. DefCon uses a Poisson per-game λ from a per-90 rate. Bonus is a player prior, not P(finish top 3 in *this* match’s BPS). Saves ignore opposition shot volume. Cards ignore referee/opponent.
-- **Horizon** copies the same per-match xP across future GWs (no extra decay beyond the rate priors, no set-piece share, no penalty taker). Own goals / penalty save-miss omitted.
+- **DefCon, bonus, saves, cards** are not opponent-adjusted.
+- **Set pieces / penalties** are not modelled. The public `set-piece-notes` payload is an empty placeholder; the website notes are messy (multiple names, only when first-choice is off).
+- Own goals / penalty save-miss omitted. Horizon copies the same form minutes to every GW; yellow/red flags are listed on recommend instead of zeroing xP.
 - **Transfers** rank 1-for-1 best-XI delta only: no hits, free transfers, captain 2×, or chip sequences.

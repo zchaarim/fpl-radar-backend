@@ -3,8 +3,8 @@
 Scoring, squad size, and DefCon thresholds are the published game rules (or
 bootstrap `game_settings` when present). Everything else is a modelling choice:
 
-- Shrinkage *k* values: equivalent sample sizes, set by judgment so small-n
-  rates do not dominate. Not cross-validated on FPL history.
+- Shrinkage *k* values: equivalent sample sizes. See comments in this file and
+  docs/shrinkage.md (why 4 vs 8 vs 18 vs 30).
 - Minutes-when-playing / P(60+|play) / P(play) clusters: typical Premier League
   patterns (keepers finish games; unused squad GKs should not pull Raya to 70').
   Magnitudes are priors, overwritten by live GWs as *n* grows.
@@ -55,21 +55,21 @@ MAX_PLAYERS_PER_CLUB = 3
 SQUAD_SIZE = 15
 STARTING_XI = 11
 
-# --- Shrinkage k: equivalent sample size. Judgment, not a fitted study.
-# After n = k the estimate is 50/50 prior vs sample. Reds need a larger k. ---
-DEFCON_PRIOR_GAMES = 6
-BONUS_PRIOR_GAMES = 6
-SAVES_PRIOR_GAMES = 6
-YELLOW_PRIOR_GAMES = 6
-RED_PRIOR_GAMES = 18
+# Shrinkage k: equivalent sample size of the prior. After n = k, 50/50 sample vs prior.
+# Chosen from how fast each signal stabilizes (not an FPL backtest). See docs/shrinkage.md.
+DEFCON_PRIOR_GAMES = 8
+BONUS_PRIOR_GAMES = 8
+SAVES_PRIOR_GAMES = 8
+YELLOW_PRIOR_GAMES = 8
+RED_PRIOR_GAMES = 30
 MIN_BONUS_CURVE_BUCKETS = 8
 XGI_PRIOR_90S = 8
 POSITION_XGI_PRIOR_90S = 8
-TEAM_STRENGTH_PRIOR_GAMES = 8
-FINISHING_PRIOR_GAMES = 12
+TEAM_STRENGTH_PRIOR_GAMES = 10
+FINISHING_PRIOR_GAMES = 18
 HOME_SPLIT_PRIOR_GAMES = 10
 MIN_PRIOR_MINUTES = 180
-MINUTES_PRIOR_GAMES = 6
+MINUTES_PRIOR_GAMES = 4
 # P(play) = share of scheduled GWs with minutes > 0.
 # unused:  p_played <= MINUTES_UNUSED_RATE  (true DNPs: 0 minutes every GW)
 # rotation: MINUTES_UNUSED_RATE < p_played < MINUTES_REGULAR_RATE

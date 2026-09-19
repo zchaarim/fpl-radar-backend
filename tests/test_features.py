@@ -53,7 +53,7 @@ def test_team_strength_attack_vs_defence() -> None:
     strengths = team_strengths(_us_league()["teams"])
     assert strengths["88"].att > strengths["89"].att
     assert strengths["89"].dfn > strengths["88"].dfn
-    # 2 matches, k=8 → still close to 1.0, not the raw ~1.6 / 0.6 split.
+    # 2 matches, k=10 → still close to 1.0, not the raw ~1.6 / 0.6 split.
     assert strengths["88"].att < 1.35
     assert strengths["89"].att > 0.65
 
@@ -78,6 +78,9 @@ def test_fixture_multiplier_harder_away() -> None:
     away = fixture_multiplier(features, 1, 2, False)
     assert home > away
     assert features.league_ha_home > features.league_ha_away
+    team = features.teams[1]
+    opp = features.teams[2]
+    assert abs(home - max(0.25, opp.dfn * team.venue_home)) < 1e-9
 
 
 def test_xgi_xp_uses_fixture_and_not_placeholder() -> None:

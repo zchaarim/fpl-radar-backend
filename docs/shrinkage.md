@@ -19,18 +19,35 @@ Promoted clubs and new-to-EPL players have no EPL last season, so they keep (2).
 
 This is the posterior mean of a Normal mean (known variance) and of a Gamma–Poisson rate when the prior is equivalent to `k` observations at `prior`. It is also James–Stein / empirical Bayes in one dimension. It is **not** an arbitrary 50/50 blend of two stats.
 
-At ~10–15 games, team strengths are mostly data (`k = 8` → about 55–65% observed). At 4 games they are still ~⅓ data.
+At ~10–15 games, team xG strengths are mostly this season (`k = 10` → 50/50 at 10 matches). At 4 games they are still ~30% data.
 
 | Signal | `n` | `k` | Prior |
 | --- | --- | --- | --- |
-| xG/90, xA/90 | minutes / 90 | 8 | Last EPL season xG/90 if ≥180 minutes, else this-season position mean (that mean uses last-season position xGI as its prior) |
-| Team attack / defence | matches | 8 | Last EPL season xG vs league, else **1.0** |
-| Finishing (GF/xG, GA/xGA) | matches | 12 | Last season GF/xG, else **1.0** |
+| xG/90, xA/90 | minutes / 90 | 8 | Last EPL season xG/90 if ≥180 minutes, else this-season position mean |
+| Team attack / defence | matches | 10 | Last EPL season xG vs league, else **1.0** |
+| Finishing (GF/xG, GA/xGA) | matches | 18 | Last season GF/xG, else **1.0** |
 | Home/away venue | home or away matches | 10 | Last season split, else league-wide HA |
-| Minutes when playing / P(60+|play) | appearances (mins > 0) | 6 | Playing-player position mean (not squad DNP average) |
-| P(play) | finished GWs | 6 | Same-cluster mean: regular / rotation / unused |
-| DefCon / bonus / saves | games or 90s | 6 | Position mean (this season; no last-year DefCon yet) |
-| Yellows / reds | 90s | 6 / 18 | This-season position mean, shrunk toward last-season Understat cards/90 for players with ≥180' |
+| Minutes when playing / P(60+|play) | appearances (mins > 0) | 4 | Playing-player position mean |
+| P(play) | finished GWs | 4 | Same-cluster mean: regular / rotation / unused |
+| DefCon / bonus / saves / yellows | games or 90s | 8 | Position mean (DefCon/bonus/saves have no last-year prior) |
+| Reds | 90s | 30 | Position mean (last-season Understat reds/90) |
+
+### Why these `k` values
+
+`k` is how many observations the prior is worth. It is **not** a fitted FPL backtest; it follows how noisy each series is in public soccer analytics.
+
+- **Minutes `k = 4`.** Playing time is a discrete role (nailed / rotation / out). Four GWs usually show it. `k = 6` was still dragging 4×90 keepers off a full game toward the cluster prior.
+- **xG/xA `k = 8` 90s.** Shooting rates need ~10–15 90s without a player prior (the usual public result: xG/90 is far more stable than goals/90, but not after two matches). Last season is already the prior mean when they have 180+ EPL minutes, so `k = 8` treats that year as about a third of a season after role-change discount.
+- **Position xGI hyperprior `k = 8`.** The position mean itself has a huge `n`, so this barely moves it. It only matters if the live sample is empty.
+- **Team xG `k = 10`.** Club xG/game correlates strongly year to year (SPI / xG tables persist). Last season is ~38 matches; treating it as 10 equivalent games is the usual early-season discount. 50/50 at GW10, not GW8.
+- **Finishing `k = 18`.** Conversion over/under xG is mostly luck until shot samples are huge. At 4 games a 2:1 GF/xG spike is `4/22 ≈ 18%` of the estimate (was ~25% at `k = 12`).
+- **Home/away `k = 10`.** Only 19 home games a year; two home matches should not rewrite HA. Keep 10.
+- **DefCon / bonus / saves / yellows `k = 8`.** High week-to-week variance, and DefCon has no last-season FPL history. One haul in one GW is `1/9` of the posterior, not `1/7`.
+- **Reds `k = 30`.** League sending-off rates are ~0.01–0.03 per 90. One red in 90 minutes with `k = 18` still implied ~0.06 per 90. `k = 30` keeps a one-off as a small bump.
+
+```text
+att_xg = shrink(team_xG_per_game / league_xG, prior=last season or 1.0, n=matches, k=10)
+```
 
 ## “Regression to 1.0” (teams)
 
@@ -41,10 +58,10 @@ Old code used each club’s 4-game (and 2-game home/away) sample as if it were t
 **Regression to 1.0** means: if we have no last-season EPL row, treat “league average” as the prior, then let matches pull away from it. If we *do* have last season, shrink toward **that club’s last-season multiplier** instead of 1.0 — City starts as a strong attack, a promoted side still starts at 1.0.
 
 ```text
-att_xg = shrink(team_xG_per_game / league_xG, prior=1.0, n=matches, k=8)
+att_xg = shrink(team_xG_per_game / league_xG, prior=1.0, n=matches, k=10)
 ```
 
-After 4 games a 1.6 raw attack becomes about `1.2`. After 15 games it is about `1.47`. The ranking of teams is preserved; the **scale** of the gap is damped until the sample can support it.
+After 4 games a 1.6 raw attack is about `1.17`. After 15 games it is about `1.36`. The ranking of teams is preserved; the **scale** of the gap is damped until the sample can support it.
 
 ## Why not 50/50 goals and xG?
 
@@ -58,7 +75,7 @@ A 50/50 mix of GF and xG treats a 4-game goal binge as half of “quality”. Th
 The model instead:
 
 1. **Quality** from xG vs league, shrunk to 1.0.
-2. **Finishing** as `GF / xG`, shrunk to 1.0 with a *larger* `k` (12). At 4 games, a team that outscored xG 2:1 only keeps ~25% of that finishing spike.
+2. **Finishing** as `GF / xG`, shrunk to 1.0 with a *larger* `k` (18). At 4 games, a team that outscored xG 2:1 only keeps ~18% of that finishing spike.
 3. `att = att_xg × finishing`.
 
 Same story on defence with xGA and goals against. Over 10–15 games finishing is allowed to matter more, which is when over/under-performance is less likely to be noise.

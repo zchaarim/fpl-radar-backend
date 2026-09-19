@@ -376,37 +376,55 @@ def fpl_player_rates(player: dict[str, Any]) -> PlayerRates:
     )
 
 
-def _availability_scale(player: dict[str, Any]) -> float:
-    status = (player.get("status") or "a").lower()
-    if status in {"i", "s", "u", "n"}:
-        return 0.0
-    chance = player.get("chance_of_playing_next_round")
-    if chance is not None:
-        return max(0.0, min(1.0, _f(chance) / 100.0))
-    return 1.0
-
-
 def project_minutes(player: dict[str, Any], rates: PlayerRates) -> tuple[float, float, float]:
-    """Return (exp_mins, p60, p_played) after current availability."""
-    scale = _availability_scale(player)
-    if scale <= 0:
-        return 0.0, 0.0, 0.0
+    """Return (exp_mins, p60, p_played) from the minutes model.
+
+    Injury/doubt flags are not applied here — they would zero a whole horizon.
+    Surface them on recommendations via ``availability_note``.
+    """
     if rates.minutes_source != "none":
-        exp = min(90.0, rates.exp_mins * scale)
-        p60 = min(1.0, rates.p60 * scale)
-        played = min(1.0, rates.p_played * scale)
+        exp = min(90.0, rates.exp_mins)
+        p60 = min(1.0, rates.p60)
+        played = min(1.0, rates.p_played)
         p60 = min(p60, played)
         return exp, p60, played
-    # Fallback when there is no live GW series.
     if rates.games > 0 and rates.minutes > 0:
         mins = min(90.0, rates.minutes / max(rates.games, 1.0))
     else:
         mins = 60.0 if _i(player.get("starts")) else 15.0
-    mins *= scale
     mins = max(0.0, min(90.0, mins))
-    p60 = p_play_sixty(mins) * scale
-    played = (1.0 if mins > 0 else 0.0) * scale
+    p60 = p_play_sixty(mins)
+    played = 1.0 if mins > 0 else 0.0
     return mins, min(p60, played), played
+
+
+def availability_note(player: dict[str, Any] | None) -> str:
+    """FPL traffic-light / news for display. Empty if the player is available."""
+    if not player:
+        return ""
+    status = (player.get("status") or "a").lower()
+    labels = {
+        "d": "flag yellow",
+        "i": "flag red",
+        "s": "suspended",
+        "u": "unavailable",
+        "n": "unavailable",
+    }
+    parts: list[str] = []
+    if status in labels:
+        parts.append(labels[status])
+    chance = player.get("chance_of_playing_next_round")
+    if chance is not None:
+        try:
+            pct = int(float(chance))
+        except (TypeError, ValueError):
+            pct = None
+        if pct is not None and pct < 100:
+            parts.append(f"{pct}% next GW")
+    news = str(player.get("news") or "").strip()
+    if news:
+        parts.append(news[:80])
+    return "; ".join(dict.fromkeys(parts))
 
 
 def expected_minutes(player: dict[str, Any], rates: PlayerRates) -> float:
@@ -793,17 +811,18 @@ def fixture_multiplier(
     opponent_id: int,
     is_home: bool,
 ) -> float:
-    """Venue-neutral attack × opposition defence × this club's shrunk home/away factor.
+    """Opposition defence × this club's home/away factor.
 
-    The venue factor starts at the league (or last-season) split and moves toward
-    this team's own home/away xG ratio as home/away matches accumulate.
+    Player xG/90 already embeds their team's attack, so we do **not** multiply
+    by ``team.att`` again. Venue is the residual vs that player's mixed home/away
+    season rate.
     """
     team = features.teams.get(team_id)
     opp = features.teams.get(opponent_id)
     if not team or not opp:
         return 1.0
     venue = team.venue_home if is_home else team.venue_away
-    return max(0.25, team.att * opp.dfn * venue)
+    return max(0.25, opp.dfn * venue)
 
 
 def fixture_goals_against_lambda(

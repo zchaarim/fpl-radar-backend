@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from fpl_radar.features import availability_note
 from fpl_radar.fpl_rules import (
     ELEMENT_TYPE_DEF,
     ELEMENT_TYPE_FWD,
@@ -158,6 +159,8 @@ def rank_replacements(
                     per_event_delta={
                         eid: new_per.get(eid, 0.0) - current_per.get(eid, 0.0) for eid in event_ids
                     },
+                    out_flag=availability_note(players_by_id.get(outgoing.element_id)),
+                    in_flag=availability_note(incoming),
                     placeholder=ctx.features is None,
                 )
             )

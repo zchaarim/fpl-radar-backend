@@ -25,6 +25,6 @@ For current squad and each candidate squad, compute **best XI xP each GW** (1 GK
 - Primary: `delta = xP_horizon(new) - xP_horizon(current)`
 - Secondary: incoming player’s horizon xP (captain flag)
 
-Each option includes out/in names and ids, purchase/sell/now_cost, `price_source`, bank after, delta, incoming xP, per-GW delta series.
+Each option includes out/in names and ids, purchase/sell/now_cost, `price_source`, bank after, delta, incoming xP, per-GW delta series, and FPL availability flags (`out_flag` / `in_flag`: yellow, red, suspended, `% next GW`, news). Flags are informational; they do not zero horizon xP.
 
 2-for-2, hits, chips, and multi-week sequences are out of scope for v1. The HTTP API for a front-end is planned; ranking stays in the library so the site can call the same functions as the CLI.

@@ -85,10 +85,16 @@ def cmd_recommend(args: argparse.Namespace) -> int:
         source = "placeholder xP from FPL ep_next"
     print(f"Top {len(options)} 1-for-1 options over {args.horizon} GW ({source})")
     for option in options:
+        flags = []
+        if option.out_flag:
+            flags.append(f"out {option.out_flag}")
+        if option.in_flag:
+            flags.append(f"in {option.in_flag}")
+        flag_txt = f"  ({'; '.join(flags)})" if flags else ""
         print(
             f"  {option.out_name} -> {option.in_name}  delta {option.delta:+.2f}  "
             f"in_xP {option.incoming_horizon_xp:.2f}  bank_after £{option.bank_after / 10:.1f}  "
-            f"[{option.price_source.value}]"
+            f"[{option.price_source.value}]{flag_txt}"
         )
     return 0
 

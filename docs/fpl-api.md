@@ -60,7 +60,7 @@ Published squad, captain, chips for that GW. Available after the deadline; befor
 
 ### `team/set-piece-notes/` — `FplClient.set_piece_notes`
 
-Set-piece taker notes per club (pens / FK / corners) for later xG share.
+Fetched on `sync` but **not used**. The payload is currently a placeholder (`Check back for additional notes soon` per club). Real taker notes live on the FPL website, not this API, and listing several names for pens/FKs is not the same as xG share. Set-piece modelling is out of scope for now.
 
 ### Authenticated (optional)
 

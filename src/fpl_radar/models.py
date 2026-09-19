@@ -59,4 +59,6 @@ class TransferOption(BaseModel):
     delta: float
     incoming_horizon_xp: float
     per_event_delta: dict[int, float] = Field(default_factory=dict)
+    out_flag: str = ""
+    in_flag: str = ""
     placeholder: bool = True
