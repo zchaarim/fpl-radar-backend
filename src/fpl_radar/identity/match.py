@@ -310,6 +310,51 @@ def match_players(
     return result
 
 
+def map_understat_players(
+    current: list[dict[str, Any]],
+    previous: list[dict[str, Any]],
+) -> dict[str, str]:
+    """Map this-season Understat player id -> previous-season Understat id.
+
+    Same numeric id is preferred (Understat ids are stable). Otherwise unique
+    normalized name, then a conservative fuzzy match. Club is ignored so
+    transfers still join.
+    """
+    result: dict[str, str] = {}
+    used: set[str] = set()
+    prev_by_id = {str(row.get("id")): row for row in previous or []}
+    for row in current or []:
+        cid = str(row.get("id") or "")
+        if cid and cid in prev_by_id:
+            result[cid] = cid
+            used.add(cid)
+
+    prev_by_name: dict[str, list[str]] = {}
+    for row in previous or []:
+        pid = str(row.get("id") or "")
+        name = normalize_name(row.get("player_name") or "")
+        if name:
+            prev_by_name.setdefault(name, []).append(pid)
+
+    for row in current or []:
+        cid = str(row.get("id") or "")
+        if not cid or cid in result:
+            continue
+        name = normalize_name(row.get("player_name") or "")
+        hits = [pid for pid in prev_by_name.get(name, []) if pid not in used]
+        unique = list(dict.fromkeys(hits))
+        if len(unique) == 1:
+            result[cid] = unique[0]
+            used.add(unique[0])
+            continue
+        leftover = [p for p in (previous or []) if str(p.get("id")) not in used]
+        fuzzy = _pick_fuzzy(row.get("player_name") or "", leftover)
+        if fuzzy:
+            result[cid] = fuzzy
+            used.add(fuzzy)
+    return result
+
+
 def identity_coverage(
     fpl_players: list[dict[str, Any]],
     understat_players: list[dict[str, Any]],

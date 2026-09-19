@@ -29,6 +29,7 @@ class ModelContext:
     bootstrap: dict[str, Any]
     fixtures: list[dict[str, Any]] = field(default_factory=list)
     understat_league: dict[str, Any] | None = None
+    understat_prior: dict[str, Any] | None = None
     player_match: dict[int, str] = field(default_factory=dict)
     team_match: dict[int, str] = field(default_factory=dict)
     features: FeatureSet | None = None
@@ -77,7 +78,11 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
     player = players.get(int(player_id)) or {}
     features = context.features
     if features is None and context.understat_league is not None:
-        features = build_feature_set(context.bootstrap, context.understat_league)
+        features = build_feature_set(
+            context.bootstrap,
+            context.understat_league,
+            understat_prior=context.understat_prior,
+        )
 
     if features is None:
         try:
@@ -201,6 +206,8 @@ def expected_points(player_id: int, event_ids: list[int], context: ModelContext)
             "xg90": rates.xg90,
             "xa90": rates.xa90,
             "xgi90": rates.xgi90,
+            "xg90_raw": rates.xg90_raw,
+            "xa90_raw": rates.xa90_raw,
             "defcon_p": rates.defcon_p,
             "defcon_games": rates.defcon_games,
             "defcon_hits": rates.defcon_hits,

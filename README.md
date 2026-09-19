@@ -43,6 +43,7 @@ A website will call this backend over HTTP. Do not put ranking logic in argparse
 - [FPL API catalog](docs/fpl-api.md)
 - [Understat scraper](docs/understat.md)
 - [Expected points model](docs/expected-points.md)
+- [Shrinkage / empirical Bayes](docs/shrinkage.md)
 - [Transfer ranking](docs/transfers.md)
 
 Name collisions between FPL and Understat go in [data/mappings/overrides.json](data/mappings/overrides.json).

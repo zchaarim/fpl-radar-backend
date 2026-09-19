@@ -1,6 +1,7 @@
 from fpl_radar.identity.match import (
     canonical_team,
     identity_coverage,
+    map_understat_players,
     match_players,
     match_teams,
     normalize_name,
@@ -9,6 +10,7 @@ from fpl_radar.identity.match import (
 __all__ = [
     "canonical_team",
     "identity_coverage",
+    "map_understat_players",
     "match_players",
     "match_teams",
     "normalize_name",

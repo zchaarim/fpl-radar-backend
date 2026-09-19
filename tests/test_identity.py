@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fpl_radar.identity.match import (
     canonical_team,
+    map_understat_players,
     match_players,
     match_teams,
     normalize_name,
@@ -133,4 +134,18 @@ def test_match_iberian_double_surname_and_spelling() -> None:
     ]
     us_players = [{"id": "9024", "player_name": "Yeremi Pino", "team_title": "Crystal Palace"}]
     assert match_players(fpl_players, us_players, {}, fpl_teams)[211] == "9024"
+
+
+def test_map_understat_players_by_id_and_name() -> None:
+    current = [
+        {"id": "55", "player_name": "Bukayo Saka"},
+        {"id": "99", "player_name": "New Signing"},
+    ]
+    previous = [
+        {"id": "55", "player_name": "Bukayo Saka"},
+        {"id": "12", "player_name": "New Signing"},
+    ]
+    mapped = map_understat_players(current, previous)
+    assert mapped["55"] == "55"
+    assert mapped["99"] == "12"
 

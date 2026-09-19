@@ -106,14 +106,15 @@ def cmd_xgi(args: argparse.Namespace) -> int:
     rows.sort(reverse=True)
     matched = len(features.players) - len(features.unmatched_players)
     print(
-        f"{'player':16} {'club':4} {'src':9} {'min':5} {'xG90':6} {'xA90':6} {'xGI90':6} "
-        f"{'BPS':5} {'bonE':5}  matched {matched}/{len(features.players)}"
+        f"{'player':16} {'club':4} {'src':16} {'min':5} {'xG90':6} {'xA90':6} {'xGI90':6} "
+        f"{'rawGI':6} {'BPS':5} {'bonE':5}  matched {matched}/{len(features.players)}"
     )
     for _score, eid, rates in rows[: args.limit]:
         print(
             f"{(names.get(eid) or str(eid)):16} {(teams.get(team_of.get(eid, 0)) or '?'):4} "
-            f"{rates.source:9} {rates.minutes:5.0f} {rates.xg90:6.2f} {rates.xa90:6.2f} "
-            f"{rates.xgi90:6.2f} {rates.bps_avg:5.1f} {rates.bonus_e:5.2f}"
+            f"{rates.source:16} {rates.minutes:5.0f} {rates.xg90:6.2f} {rates.xa90:6.2f} "
+            f"{rates.xgi90:6.2f} {rates.xg90_raw + rates.xa90_raw:6.2f} "
+            f"{rates.bps_avg:5.1f} {rates.bonus_e:5.2f}"
         )
     return 0
 

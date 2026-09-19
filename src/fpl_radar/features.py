@@ -11,8 +11,15 @@ from fpl_radar.fpl_rules import (
     ELEMENT_TYPE_FWD,
     ELEMENT_TYPE_GKP,
     ELEMENT_TYPE_MID,
+    FINISHING_PRIOR_GAMES,
+    HOME_SPLIT_PRIOR_GAMES,
     MIN_BONUS_CURVE_BUCKETS,
+    MIN_PRIOR_MINUTES,
+    POSITION_XGI_PRIOR_90S,
     SAVES_PRIOR_GAMES,
+    TEAM_STRENGTH_PRIOR_GAMES,
+    XGI90_DEFAULT,
+    XGI_PRIOR_90S,
     YELLOW90_DEFAULT,
     YELLOW_PRIOR_GAMES,
     RED90_DEFAULT,
@@ -20,7 +27,13 @@ from fpl_radar.fpl_rules import (
     defcon_threshold,
     scoring_table,
 )
-from fpl_radar.identity.match import load_overrides, match_players, match_teams
+from fpl_radar.identity.match import (
+    canonical_team,
+    load_overrides,
+    map_understat_players,
+    match_players,
+    match_teams,
+)
 
 
 def _f(value: Any) -> float:
@@ -52,6 +65,8 @@ class TeamStrength:
     att_away: float
     def_home: float
     def_away: float
+    venue_home: float = 1.0
+    venue_away: float = 1.0
 
 
 @dataclass
@@ -66,6 +81,8 @@ class PlayerRates:
     xa90: float
     xgi90: float
     source: str
+    xg90_raw: float = 0.0
+    xa90_raw: float = 0.0
     defcon90: float = 0.0
     defcon_games: int = 0
     defcon_hits: int = 0
@@ -94,7 +111,23 @@ class FeatureSet:
     teams: dict[int, TeamStrength] = field(default_factory=dict)
     players: dict[int, PlayerRates] = field(default_factory=dict)
     league_xg_pg: float = 1.4
+    league_ha_home: float = 1.0
+    league_ha_away: float = 1.0
     unmatched_players: list[int] = field(default_factory=list)
+
+
+def shrink_mean(observed: float, prior: float, n: float, k: float) -> float:
+    """Posterior mean if the prior is worth ``k`` observations at ``prior``.
+
+    Same conjugate update as a Normal mean with known variance, or a Gamma-Poisson
+    rate with a prior equivalent sample size of ``k``. After ``n = k`` games the
+    estimate is halfway between the sample and the prior.
+    """
+    n = max(float(n), 0.0)
+    k = max(float(k), 0.0)
+    if n + k <= 0:
+        return prior
+    return (n * observed + k * prior) / (n + k)
 
 
 def _history_rows(team: dict[str, Any]) -> list[dict[str, Any]]:
@@ -114,11 +147,13 @@ def _split_pg(rows: list[dict[str, Any]], ha: str | None = None) -> tuple[float,
     return xg, xga, gf, ga, n
 
 
-def _blend(actual: float, expected: float, weight: float = 0.5) -> float:
-    return weight * expected + (1.0 - weight) * actual
+def _finishing_ratio(goals_pg: float, xg_pg: float) -> float:
+    if xg_pg <= 0.05:
+        return 1.0
+    return goals_pg / xg_pg
 
 
-def team_strengths(understat_teams: dict[str, Any]) -> dict[str, TeamStrength]:
+def _collect_team_raw(understat_teams: dict[str, Any]) -> dict[str, dict[str, float]]:
     raw: dict[str, dict[str, float]] = {}
     for us_id, team in (understat_teams or {}).items():
         if not isinstance(team, dict):
@@ -127,41 +162,134 @@ def team_strengths(understat_teams: dict[str, Any]) -> dict[str, TeamStrength]:
         if not rows:
             continue
         xg, xga, gf, ga, n = _split_pg(rows)
-        hxg, hxga, hgf, hga, hn = _split_pg(rows, "h")
-        axg, axga, agf, aga, an = _split_pg(rows, "a")
-        if hn == 0:
-            hxg, hxga, hgf, hga = xg, xga, gf, ga
-        if an == 0:
-            axg, axga, agf, aga = xg, xga, gf, ga
+        hxg, hxga, _hgf, _hga, hn = _split_pg(rows, "h")
+        axg, axga, _agf, _aga, an = _split_pg(rows, "a")
         raw[str(team.get("id") or us_id)] = {
             "title": team.get("title") or "",
             "n": float(n),
+            "hn": float(hn),
+            "an": float(an),
             "xg": xg,
             "xga": xga,
             "gf": gf,
             "ga": ga,
             "hxg": hxg,
             "hxga": hxga,
-            "hgf": hgf,
-            "hga": hga,
             "axg": axg,
             "axga": axga,
-            "agf": agf,
-            "aga": aga,
         }
+    return raw
+
+
+def season_team_priors(understat_teams: dict[str, Any] | None) -> dict[str, dict[str, float]]:
+    """Last-season xG strengths keyed by canonical club name."""
+    raw = _collect_team_raw(understat_teams or {})
     if not raw:
         return {}
+    league_xg = max(sum(v["xg"] for v in raw.values()) / len(raw), 0.05)
+    league_xga = max(sum(v["xga"] for v in raw.values()) / len(raw), 0.05)
+    priors: dict[str, dict[str, float]] = {}
+    for v in raw.values():
+        xg = max(v["xg"], 0.05)
+        priors[canonical_team(str(v["title"]))] = {
+            "att": v["xg"] / league_xg,
+            "dfn": v["xga"] / league_xga,
+            "finish_att": _finishing_ratio(v["gf"], v["xg"]),
+            "finish_def": _finishing_ratio(v["ga"], v["xga"]),
+            "venue_home": v["hxg"] / xg if v["hn"] else 1.0,
+            "venue_away": v["axg"] / xg if v["an"] else 1.0,
+        }
+    return priors
+
+
+def team_strengths(understat_teams: dict[str, Any]) -> dict[str, TeamStrength]:
+    table = build_team_strengths(understat_teams)
+    return table[0]
+
+
+def build_team_strengths(
+    understat_teams: dict[str, Any],
+    priors: dict[str, dict[str, float]] | None = None,
+) -> tuple[dict[str, TeamStrength], float, float, float]:
+    """Venue-neutral attack/defence plus per-club home/away residuals.
+
+    Attack is xG vs league, times finishing (GF/xG). Shrink toward last season
+    when we have it, else 1.0. Home/away starts at the league venue factor
+    (or last season's split) and blends in this club's current split as n grows.
+    """
+    raw = _collect_team_raw(understat_teams)
+    priors = priors or {}
+    if not raw:
+        return {}, 1.4, 1.0, 1.0
+
     avg_xg = sum(v["xg"] for v in raw.values()) / len(raw)
     avg_xga = sum(v["xga"] for v in raw.values()) / len(raw)
-    avg_gf = sum(v["gf"] for v in raw.values()) / len(raw)
-    avg_ga = sum(v["ga"] for v in raw.values()) / len(raw)
-    avg_att = max(_blend(avg_gf, avg_xg), 0.05)
-    avg_def = max(_blend(avg_ga, avg_xga), 0.05)
+    home_rows = [v for v in raw.values() if v["hn"] > 0]
+    away_rows = [v for v in raw.values() if v["an"] > 0]
+    avg_home_xg = (
+        sum(v["hxg"] for v in home_rows) / len(home_rows) if home_rows else avg_xg
+    )
+    avg_away_xg = (
+        sum(v["axg"] for v in away_rows) / len(away_rows) if away_rows else avg_xg
+    )
+    avg_home_xga = (
+        sum(v["hxga"] for v in home_rows) / len(home_rows) if home_rows else avg_xga
+    )
+    avg_away_xga = (
+        sum(v["axga"] for v in away_rows) / len(away_rows) if away_rows else avg_xga
+    )
+    league_xg = max(avg_xg, 0.05)
+    league_xga = max(avg_xga, 0.05)
+    ha_home = max(avg_home_xg / league_xg, 0.5)
+    ha_away = max(avg_away_xg / league_xg, 0.5)
+    def_home_f = max(avg_home_xga / league_xga, 0.5)
+    def_away_f = max(avg_away_xga / league_xga, 0.5)
 
     result: dict[str, TeamStrength] = {}
     for us_id, v in raw.items():
-        att = _blend(v["gf"], v["xg"]) / avg_att
-        dfn = _blend(v["ga"], v["xga"]) / avg_def
+        n = v["n"]
+        prior = priors.get(canonical_team(str(v["title"]))) or {}
+        att_xg = shrink_mean(
+            v["xg"] / league_xg,
+            float(prior.get("att") or 1.0),
+            n,
+            TEAM_STRENGTH_PRIOR_GAMES,
+        )
+        dfn_xg = shrink_mean(
+            v["xga"] / league_xga,
+            float(prior.get("dfn") or 1.0),
+            n,
+            TEAM_STRENGTH_PRIOR_GAMES,
+        )
+        finish_att = shrink_mean(
+            _finishing_ratio(v["gf"], v["xg"]),
+            float(prior.get("finish_att") or 1.0),
+            n,
+            FINISHING_PRIOR_GAMES,
+        )
+        finish_def = shrink_mean(
+            _finishing_ratio(v["ga"], v["xga"]),
+            float(prior.get("finish_def") or 1.0),
+            n,
+            FINISHING_PRIOR_GAMES,
+        )
+        att = max(att_xg * finish_att, 0.25)
+        dfn = max(dfn_xg * finish_def, 0.25)
+        xg = max(v["xg"], 0.05)
+        raw_home = v["hxg"] / xg if v["hn"] else float(prior.get("venue_home") or ha_home)
+        raw_away = v["axg"] / xg if v["an"] else float(prior.get("venue_away") or ha_away)
+        venue_home = shrink_mean(
+            raw_home,
+            float(prior.get("venue_home") or ha_home),
+            v["hn"],
+            HOME_SPLIT_PRIOR_GAMES,
+        )
+        venue_away = shrink_mean(
+            raw_away,
+            float(prior.get("venue_away") or ha_away),
+            v["an"],
+            HOME_SPLIT_PRIOR_GAMES,
+        )
         result[us_id] = TeamStrength(
             us_id=us_id,
             title=str(v["title"]),
@@ -172,12 +300,14 @@ def team_strengths(understat_teams: dict[str, Any]) -> dict[str, TeamStrength]:
             ga_pg=v["ga"],
             att=att,
             dfn=dfn,
-            att_home=_blend(v["hgf"], v["hxg"]) / avg_att,
-            att_away=_blend(v["agf"], v["axg"]) / avg_att,
-            def_home=_blend(v["hga"], v["hxga"]) / avg_def,
-            def_away=_blend(v["aga"], v["axga"]) / avg_def,
+            att_home=att * venue_home,
+            att_away=att * venue_away,
+            def_home=dfn * def_home_f,
+            def_away=dfn * def_away_f,
+            venue_home=venue_home,
+            venue_away=venue_away,
         )
-    return result
+    return result, league_xg, ha_home, ha_away
 
 
 def player_understat_rates(understat_players: list[dict[str, Any]]) -> dict[str, PlayerRates]:
@@ -200,6 +330,8 @@ def player_understat_rates(understat_players: list[dict[str, Any]]) -> dict[str,
             xg90=xg / per90,
             xa90=xa / per90,
             xgi90=(xg + xa) / per90,
+            xg90_raw=xg / per90,
+            xa90_raw=xa / per90,
             source="understat",
         )
     return result
@@ -222,6 +354,8 @@ def fpl_player_rates(player: dict[str, Any]) -> PlayerRates:
         xg90=xg / per90,
         xa90=xa / per90,
         xgi90=(xg + xa) / per90,
+        xg90_raw=xg / per90,
+        xa90_raw=xa / per90,
         source="fpl",
     )
 
@@ -242,11 +376,82 @@ def expected_minutes(player: dict[str, Any], rates: PlayerRates) -> float:
     return max(0.0, min(90.0, mins))
 
 
+def position_xgi90(
+    fpl_players: list[dict[str, Any]],
+    rates_by_id: dict[int, PlayerRates],
+    element_type: int,
+) -> tuple[float, float]:
+    default_xg, default_xa = XGI90_DEFAULT.get(element_type, (0.2, 0.15))
+    weighted_xg = 0.0
+    weighted_xa = 0.0
+    n90_sum = 0.0
+    for player in fpl_players:
+        if int(player.get("element_type") or 0) != element_type:
+            continue
+        rates = rates_by_id.get(int(player["id"]))
+        if rates is None or rates.minutes < 180:
+            continue
+        n90 = rates.minutes / 90.0
+        raw_xg = rates.xg90_raw or rates.xg90
+        raw_xa = rates.xa90_raw or rates.xa90
+        weighted_xg += n90 * raw_xg
+        weighted_xa += n90 * raw_xa
+        n90_sum += n90
+    xg90 = shrink_mean(weighted_xg / n90_sum if n90_sum else default_xg, default_xg, n90_sum, POSITION_XGI_PRIOR_90S)
+    xa90 = shrink_mean(weighted_xa / n90_sum if n90_sum else default_xa, default_xa, n90_sum, POSITION_XGI_PRIOR_90S)
+    return xg90, xa90
+
+
+def attach_xgi_shrink(
+    rates_by_id: dict[int, PlayerRates],
+    fpl_players: list[dict[str, Any]],
+    season_priors: dict[int, tuple[float, float]] | None = None,
+) -> dict[int, PlayerRates]:
+    pos = {
+        etype: position_xgi90(fpl_players, rates_by_id, etype)
+        for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
+    }
+    season_priors = season_priors or {}
+    updated: dict[int, PlayerRates] = {}
+    for player in fpl_players:
+        eid = int(player["id"])
+        rates = rates_by_id.get(eid) or fpl_player_rates(player)
+        n90 = rates.minutes / 90.0 if rates.minutes > 0 else 0.0
+        pxg, pxa = pos.get(int(player.get("element_type") or 0), XGI90_DEFAULT[ELEMENT_TYPE_MID])
+        if eid in season_priors:
+            pxg, pxa = season_priors[eid]
+        raw_xg = rates.xg90_raw or rates.xg90
+        raw_xa = rates.xa90_raw or rates.xa90
+        used_prior = eid in season_priors
+        if n90 <= 0:
+            xg90, xa90 = 0.0, 0.0
+        else:
+            xg90 = shrink_mean(raw_xg, pxg, n90, XGI_PRIOR_90S)
+            xa90 = shrink_mean(raw_xa, pxa, n90, XGI_PRIOR_90S)
+        tag = "prior" if used_prior else "shrunk"
+        source = rates.source.split("+")[0]
+        source = f"{source}+{tag}"
+        updated[eid] = replace(
+            rates,
+            xg90=xg90,
+            xa90=xa90,
+            xgi90=xg90 + xa90,
+            xg90_raw=raw_xg,
+            xa90_raw=raw_xa,
+            source=source,
+        )
+    for eid, rates in rates_by_id.items():
+        if eid not in updated:
+            updated[eid] = rates
+    return updated
+
+
 def build_feature_set(
     bootstrap: dict[str, Any],
     understat_league: dict[str, Any] | None,
     live_defcon: dict[int, list[tuple[int, float]]] | None = None,
     live_matches: dict[int, list[dict[str, float]]] | None = None,
+    understat_prior: dict[str, Any] | None = None,
 ) -> FeatureSet:
     fpl_teams = bootstrap.get("teams") or []
     fpl_players = bootstrap.get("elements") or []
@@ -257,17 +462,18 @@ def build_feature_set(
     player_map = (
         match_players(fpl_players, us_players, team_map, fpl_teams, overrides) if us_players else {}
     )
-    strengths = team_strengths(us_teams) if us_teams else {}
+    team_priors = season_team_priors((understat_prior or {}).get("teams") or {})
+    strengths, league_xg, ha_home, ha_away = (
+        build_team_strengths(us_teams, priors=team_priors) if us_teams else ({}, 1.4, 1.0, 1.0)
+    )
     us_rates = player_understat_rates(us_players)
+    prior_rates = player_understat_rates((understat_prior or {}).get("players") or [])
+    prior_ids = map_understat_players(us_players, (understat_prior or {}).get("players") or [])
 
     teams: dict[int, TeamStrength] = {}
     for fpl_id, us_id in team_map.items():
         if us_id in strengths:
             teams[int(fpl_id)] = strengths[us_id]
-
-    league_xg = (
-        sum(t.xg_pg for t in teams.values()) / len(teams) if teams else 1.4
-    )
 
     players: dict[int, PlayerRates] = {}
     unmatched: list[int] = []
@@ -280,6 +486,15 @@ def build_feature_set(
             players[eid] = fpl_player_rates(player)
             if us_players:
                 unmatched.append(eid)
+
+    season_priors: dict[int, tuple[float, float]] = {}
+    for eid, us_id in player_map.items():
+        prev_id = prior_ids.get(str(us_id))
+        prev = prior_rates.get(prev_id or "")
+        if prev is None or prev.minutes < MIN_PRIOR_MINUTES:
+            continue
+        season_priors[int(eid)] = (prev.xg90_raw or prev.xg90, prev.xa90_raw or prev.xa90)
+    players = attach_xgi_shrink(players, fpl_players, season_priors)
 
     if live_matches and not live_defcon:
         live_defcon = {
@@ -299,6 +514,8 @@ def build_feature_set(
         teams=teams,
         players=players,
         league_xg_pg=league_xg,
+        league_ha_home=ha_home,
+        league_ha_away=ha_away,
         unmatched_players=unmatched,
     )
 
@@ -309,14 +526,17 @@ def fixture_multiplier(
     opponent_id: int,
     is_home: bool,
 ) -> float:
-    """Attack vs opposition defence, home/away split when Understat strengths exist."""
+    """Venue-neutral attack × opposition defence × this club's shrunk home/away factor.
+
+    The venue factor starts at the league (or last-season) split and moves toward
+    this team's own home/away xG ratio as home/away matches accumulate.
+    """
     team = features.teams.get(team_id)
     opp = features.teams.get(opponent_id)
     if not team or not opp:
         return 1.0
-    att = team.att_home if is_home else team.att_away
-    dfn = opp.def_away if is_home else opp.def_home
-    return max(0.25, att * dfn)
+    venue = team.venue_home if is_home else team.venue_away
+    return max(0.25, team.att * opp.dfn * venue)
 
 
 def fixture_goals_against_lambda(
@@ -331,9 +551,8 @@ def fixture_goals_against_lambda(
     league = max(features.league_xg_pg, 0.05)
     if not team or not opp:
         return league
-    opp_att = opp.att_away if is_home else opp.att_home
-    our_def = team.def_home if is_home else team.def_away
-    return max(0.05, league * opp_att * our_def)
+    venue = opp.venue_away if is_home else opp.venue_home
+    return max(0.05, league * opp.att * team.dfn * venue)
 
 
 def poisson_pmf(k: int, lam: float) -> float:

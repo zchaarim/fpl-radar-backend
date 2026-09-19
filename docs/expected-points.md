@@ -10,9 +10,10 @@ Blanks score 0; doubles sum both matches.
 **Minutes and attack**
 
 - Expected minutes from Understat `time/games` (else FPL minutes), scaled by availability.
-- xG/90 and xA/90 from Understat; unmatched players use FPL `expected_goals` / `expected_assists`.
-- Attack multiplier = player-team attack × opposition defensive weakness (home/away).
-- `E[goals] = xG90 × (mins/90) × multiplier` (same for assists).
+- Raw xG/90 and xA/90 from Understat (unmatched: FPL `expected_goals` / `expected_assists`), then **shrunk toward last season’s xG/90** if that player has ≥180 EPL minutes last year, else the position mean (`k = 8`). See [shrinkage](shrinkage.md).
+- Team attack/defence are venue-neutral multipliers, shrunk with `k = 8` toward **last season** (or 1.0 if promoted). Finishing (`GF/xG`) is a separate term with `k = 12`.
+- Fixture multiplier = `att` × opposition `dfn` × **that club’s** home/away factor (starts at league HA / last-season split, then follows their own home and away games).
+- `E[goals] = shrunk_xG90 × (mins/90) × multiplier` (same for assists).
 
 **Clean sheets and goals conceded**
 
@@ -87,10 +88,10 @@ Scoring for the model path is now complete (penalties/own goals still omitted as
 
 Identity is no longer the main leak: club aliases + in-club name matching should cover every Understat player. Remaining xP bias is mostly statistical.
 
-- **Unequal attack rates:** unmatched FPL names used to fall back to FPL `expected_goals`, which is not Understat xG. Keep Understat coverage high; do not mix the two in one ranking without a flag.
-- **No shrinkage on xG/xA/90 or team strengths.** Four games of 0.6 xG looks like a 0.60 xG/90 attacker. Home/away team splits are ~2 matches.
+xG/xA/90 and team attack/defence now shrink ([shrinkage](shrinkage.md)). Still open:
+
 - **Minutes** are `time/games` (or FPL minutes), not a playing-time model. `p_play_sixty` is a 30–70 linear heuristic. Doubles reuse the same minutes for both fixtures. News/`chance_of_playing` is only applied when FPL sets it.
-- **Fixture attack multiplier** `att × def` double-counts home advantage (home attack × away defence both include HA). Floor of 0.25 is arbitrary. CS/GC λ is independent Poisson; no scoreline correlation.
+- Fixture floor of 0.25 is arbitrary. CS/GC λ is independent Poisson; no scoreline correlation.
 - **DefCon, bonus, saves, cards** are not opponent-adjusted. DefCon uses a Poisson per-game λ from a per-90 rate. Bonus is a player prior, not P(finish top 3 in *this* match’s BPS). Saves ignore opposition shot volume. Cards ignore referee/opponent.
-- **Horizon** copies the same per-match xP across future GWs (no regression to mean, no set-piece share, no penalty taker). Own goals / penalty save-miss omitted.
+- **Horizon** copies the same per-match xP across future GWs (no extra decay beyond the rate priors, no set-piece share, no penalty taker). Own goals / penalty save-miss omitted.
 - **Transfers** rank 1-for-1 best-XI delta only: no hits, free transfers, captain 2×, or chip sequences.
