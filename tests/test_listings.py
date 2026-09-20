@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import replace
 
 from fpl_radar.features import build_feature_set, rank_xgi_rates
 from fpl_radar.fpl_rules import (
@@ -52,8 +53,10 @@ def test_rank_xgi_rates_limit_per_position() -> None:
 def test_rank_xgi_rates_min_minutes() -> None:
     boot = bootstrap_sample()
     features = build_feature_set(boot, _us_league())
-    all_rows = rank_xgi_rates(boot, features)
-    filtered = rank_xgi_rates(boot, features, min_minutes=10_000)
-    assert all_rows
-    assert filtered == []
-    assert all(rates.minutes >= 0 for _player, rates in all_rows)
+    for eid, rates in list(features.players.items()):
+        features.players[eid] = replace(rates, minutes=10.0)
+    keeper_id = int(boot["elements"][0]["id"])
+    features.players[keeper_id] = replace(features.players[keeper_id], minutes=200.0)
+    rows = rank_xgi_rates(boot, features, limit_per_position=10, min_minutes=90)
+    assert all(rates.minutes >= 90 for _player, rates in rows)
+    assert keeper_id in {int(player["id"]) for player, _rates in rows}
