@@ -140,13 +140,17 @@ def rank_xgi_rates(
     bootstrap: dict[str, Any],
     features: FeatureSet,
     limit_per_position: int | None = None,
+    min_minutes: float = 0.0,
 ) -> list[tuple[dict[str, Any], PlayerRates]]:
     """Players sorted by xGI/90, ``limit_per_position`` kept for each role."""
     by_id = {int(p["id"]): p for p in bootstrap.get("elements") or []}
     rows: list[tuple[dict[str, Any], PlayerRates]] = []
+    floor = max(float(min_minutes), 0.0)
     for eid, rates in features.players.items():
         player = by_id.get(int(eid))
         if player is None:
+            continue
+        if rates.minutes < floor:
             continue
         rows.append((player, rates))
     rows.sort(key=lambda row: row[1].xgi90, reverse=True)

@@ -179,12 +179,18 @@ def cmd_xgi(args: argparse.Namespace) -> int:
     if features is None:
         print("No feature set; run sync first.")
         return 1
-    rows = rank_xgi_rates(ctx.bootstrap, features, limit_per_position=args.limit)
+    rows = rank_xgi_rates(
+        ctx.bootstrap,
+        features,
+        limit_per_position=args.limit,
+        min_minutes=args.min_minutes,
+    )
     teams = {int(t["id"]): t.get("short_name") for t in ctx.bootstrap.get("teams") or []}
     matched = len(features.players) - len(features.unmatched_players)
+    mins_note = f"  min minutes {args.min_minutes:g}" if args.min_minutes else ""
     print(
         f"Top {args.limit} players per position by xGI/90  "
-        f"matched {matched}/{len(features.players)}"
+        f"matched {matched}/{len(features.players)}{mins_note}"
     )
     grouped: dict[int, list[tuple[dict, Any]]] = {etype: [] for etype in POSITION_ORDER}
     for player, rates in rows:
@@ -243,6 +249,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     xgi = sub.add_parser("xgi", help="Show player xG/xA/xGI rates, top N per position")
     xgi.add_argument("--limit", type=int, default=10, help=_limit_help())
+    xgi.add_argument(
+        "--min-minutes",
+        type=float,
+        default=0.0,
+        help="Drop players with fewer season minutes than this",
+    )
     xgi.set_defaults(func=cmd_xgi)
     return parser
 

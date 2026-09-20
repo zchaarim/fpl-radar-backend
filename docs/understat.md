@@ -17,7 +17,7 @@ Do not depend on `understatapi` / `py-understat`; they lag site changes.
 
 That league dump is enough for player xGI/90, last-season card/90 priors, and team attack/defence (including home/away). `getTeamData` is not required for the current model.
 
-`fpl-radar-backend sync` caches the current season (~6h) and last season (~7 days). `xgi` prints shrunk per-90 rates (`src` is `understat+prior` when last year was used). Unmatched names go in `data/mappings/overrides.json`.
+`fpl-radar-backend sync` caches the current season (~6h) and last season (~7 days). `xgi` prints shrunk per-90 rates (`src` is `understat+prior` when last year was used). `--min-minutes` drops players below that season-minute floor before the per-position limit. Unmatched names go in `data/mappings/overrides.json`.
 
 If AJAX is not JSON, fall back to decoding embedded `teamsData` / `playersData` / `datesData` from the league HTML (`unicode_escape` then `json.loads`).
 

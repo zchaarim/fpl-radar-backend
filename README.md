@@ -17,7 +17,7 @@ python -m fpl_radar sync
 
 ```text
 python -m fpl_radar sync
-python -m fpl_radar xgi --limit 10
+python -m fpl_radar xgi --limit 10 --min-minutes 180
 python -m fpl_radar xp --horizon 6 --limit 10
 python -m fpl_radar squad --entry 123456 --horizon 6
 python -m fpl_radar recommend --entry 123456 --horizon 6 --limit 10
