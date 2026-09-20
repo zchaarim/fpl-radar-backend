@@ -17,11 +17,11 @@ python -m fpl_radar sync
 
 ```text
 python -m fpl_radar sync
-python -m fpl_radar xgi --limit 10
+python -m fpl_radar xgi --limit 10 --min-minutes 200
 python -m fpl_radar xp --horizon 6 --limit 10
 python -m fpl_radar squad --entry 123456 --horizon 6
-python -m fpl_radar recommend --entry 123456 --horizon 6 --limit 10
-python -m fpl_radar plan --entry 123456 --horizon 6 --transfers 3
+python -m fpl_radar recommend --entry 123456 --horizon 6 --limit 10 --remove-player Haaland
+python -m fpl_radar plan --entry 123456 --horizon 6 --transfers 3 --remove-player Haaland --remove-player Salah
 python -m fpl_radar plan --entry 123456 --chip wildcard --horizon 6
 ```
 

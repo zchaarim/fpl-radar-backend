@@ -47,3 +47,13 @@ def test_rank_xgi_rates_limit_per_position() -> None:
     counts = Counter(int(p.get("element_type") or 0) for p, _rates in rows)
     assert all(n <= 1 for n in counts.values())
     assert ELEMENT_TYPE_MID in counts
+
+
+def test_rank_xgi_rates_min_minutes() -> None:
+    boot = bootstrap_sample()
+    features = build_feature_set(boot, _us_league())
+    all_rows = rank_xgi_rates(boot, features)
+    filtered = rank_xgi_rates(boot, features, min_minutes=10_000)
+    assert all_rows
+    assert filtered == []
+    assert all(rates.minutes >= 0 for _player, rates in all_rows)
