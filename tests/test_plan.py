@@ -113,3 +113,26 @@ def test_make_plan_freehit_uses_one_gw() -> None:
     plan = make_plan(squad, boot, horizon=6, chip="freehit")
     assert plan.chip == "freehit"
     assert list(plan.per_event_delta) == [2]
+
+
+def test_plan_removes_all_requested_players() -> None:
+    boot = bootstrap_sample()
+    squad = _squad()
+    plan = plan_transfers(
+        squad,
+        boot,
+        horizon=1,
+        max_transfers=3,
+        free_transfers=1,
+        remove_player_ids=[12, 15],
+    )
+    assert 12 not in plan.squad_ids
+    assert 15 not in plan.squad_ids
+    assert {12, 15} <= {move.element_out for move in plan.moves}
+
+
+def test_plan_remove_more_than_k_raises() -> None:
+    boot = bootstrap_sample()
+    squad = _squad()
+    with pytest.raises(ValueError, match="at least 2"):
+        plan_transfers(squad, boot, horizon=1, max_transfers=1, remove_player_ids=[12, 15])

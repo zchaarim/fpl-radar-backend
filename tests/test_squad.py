@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fpl_radar.clients.auth import FplAuthClient
 from fpl_radar.models import PriceSource
-from fpl_radar.squad import load_manager_squad, purchase_ledger, remaining_free_transfers
+from fpl_radar.squad import load_manager_squad, purchase_ledger, remaining_free_transfers, resolve_owned_players
 from tests.conftest import FakeSession, client_from_routes, public_routes
 from tests.fixtures import bootstrap_sample
 
@@ -79,3 +79,9 @@ def test_remaining_free_transfers() -> None:
     assert remaining_free_transfers({"limit": 2, "made": 0}) == 2
     assert remaining_free_transfers({"limit": 1, "made": 1}) == 0
     assert remaining_free_transfers({"limit": 1, "made": 3}) == 0
+
+
+def test_resolve_owned_players_id_and_name() -> None:
+    client = client_from_routes(public_routes())
+    squad = load_manager_squad(client, 99)
+    assert resolve_owned_players(squad, ["1", "GK2"]) == [1, 2]

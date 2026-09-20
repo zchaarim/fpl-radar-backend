@@ -12,7 +12,7 @@ from fpl_radar.fpl_rules import POSITION_LABELS, POSITION_ORDER
 from fpl_radar.identity.match import identity_coverage
 from fpl_radar.ingest.sync import default_cache, load_model_context, sync_fpl, sync_understat
 from fpl_radar.models import TransferOption
-from fpl_radar.squad import load_manager_squad
+from fpl_radar.squad import load_manager_squad, resolve_owned_players
 from fpl_radar.transfers.plan import make_plan
 from fpl_radar.transfers.rank import rank_replacements
 from fpl_radar.xp.model import expected_points, horizon_event_ids, rank_horizon_xp
@@ -114,18 +114,31 @@ def cmd_recommend(args: argparse.Namespace) -> int:
         auth_client=_auth(args),
     )
     ctx = load_model_context(client)
+    remove_id = None
+    tokens = getattr(args, "remove_player", None) or []
+    if tokens:
+        if len(tokens) > 1:
+            print("recommend --remove-player accepts a single squad player")
+            return 1
+        try:
+            remove_id = resolve_owned_players(squad, tokens)[0]
+        except ValueError as exc:
+            print(exc)
+            return 1
     options = rank_replacements(
         squad,
         ctx.bootstrap,
         horizon=args.horizon,
         context=ctx,
         limit=args.limit,
+        remove_player_id=remove_id,
     )
     source = "minutes + xGI + CS/GC + DefCon + bonus + saves + cards"
     if options and options[0].placeholder:
         source = "placeholder xP from FPL ep_next"
     print(
         f"Top {args.limit} 1-for-1 options per position over {args.horizon} GW ({source})"
+        + (f"  out {next(p.web_name for p in squad.players if p.element_id == remove_id)}" if remove_id else "")
     )
     grouped: dict[int, list[TransferOption]] = {etype: [] for etype in POSITION_ORDER}
     for option in options:
@@ -159,6 +172,14 @@ def cmd_plan(args: argparse.Namespace) -> int:
     ctx = load_model_context(client)
     chip = None if args.chip == "none" else args.chip
     horizon = 1 if chip == "freehit" else args.horizon
+    remove_ids: list[int] | None = None
+    tokens = getattr(args, "remove_player", None) or []
+    if tokens:
+        try:
+            remove_ids = resolve_owned_players(squad, tokens)
+        except ValueError as exc:
+            print(exc)
+            return 1
     try:
         plan = make_plan(
             squad,
@@ -168,6 +189,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
             chip=chip,
             context=ctx,
             free_transfers=args.ft,
+            remove_player_ids=remove_ids,
         )
     except (ValueError, RuntimeError) as exc:
         print(exc)
@@ -255,11 +277,17 @@ def cmd_xgi(args: argparse.Namespace) -> int:
     if features is None:
         print("No feature set; run sync first.")
         return 1
-    rows = rank_xgi_rates(ctx.bootstrap, features, limit_per_position=args.limit)
+    rows = rank_xgi_rates(
+        ctx.bootstrap,
+        features,
+        limit_per_position=args.limit,
+        min_minutes=args.min_minutes,
+    )
     teams = {int(t["id"]): t.get("short_name") for t in ctx.bootstrap.get("teams") or []}
     matched = len(features.players) - len(features.unmatched_players)
     print(
         f"Top {args.limit} players per position by xGI/90  "
+        f"min minutes {args.min_minutes:g}  "
         f"matched {matched}/{len(features.players)}"
     )
     grouped: dict[int, list[tuple[dict, Any]]] = {etype: [] for etype in POSITION_ORDER}
@@ -310,6 +338,13 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--bank", type=float, default=None)
     rec.add_argument("--api-token", default=None)
     rec.add_argument("--session-cookie", default=None)
+    rec.add_argument(
+        "--remove-player",
+        action="append",
+        default=None,
+        metavar="PLAYER",
+        help="Only 1-for-1s that transfer this squad player out (id or web_name; once)",
+    )
     rec.set_defaults(func=cmd_recommend)
 
     plan = sub.add_parser(
@@ -329,6 +364,13 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--bank", type=float, default=None)
     plan.add_argument("--api-token", default=None)
     plan.add_argument("--session-cookie", default=None)
+    plan.add_argument(
+        "--remove-player",
+        action="append",
+        default=None,
+        metavar="PLAYER",
+        help="Must sell this squad player (repeatable; id or web_name)",
+    )
     plan.set_defaults(func=cmd_plan)
 
     xp = sub.add_parser("xp", help="List players by expected points over a horizon, top N per position")
@@ -338,6 +380,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     xgi = sub.add_parser("xgi", help="Show player xG/xA/xGI rates, top N per position")
     xgi.add_argument("--limit", type=int, default=10, help=_limit_help())
+    xgi.add_argument(
+        "--min-minutes",
+        type=float,
+        default=0.0,
+        help="Drop players with fewer than this many minutes in the rate sample",
+    )
     xgi.set_defaults(func=cmd_xgi)
     return parser
 

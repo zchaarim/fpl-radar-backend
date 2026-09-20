@@ -27,6 +27,11 @@ Chip = Literal["wildcard", "freehit"]
 XP_SCALE = 1000
 SOLVE_SECONDS = 5.0
 
+
+def _must_drop(remove_player_ids: list[int] | None) -> dict[int, int]:
+    return {int(pid): 0 for pid in (remove_player_ids or [])}
+
+
 _POSITIONS = (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
 
 
@@ -290,6 +295,7 @@ def plan_transfers(
     context: ModelContext | None = None,
     free_transfers: int | None = None,
     pool_per_position: int = PLAN_POOL_PER_POSITION,
+    remove_player_ids: list[int] | None = None,
 ) -> TransferPlan:
     ctx = context or ModelContext(bootstrap=bootstrap)
     event_ids = horizon_event_ids(bootstrap, horizon)
@@ -300,6 +306,10 @@ def plan_transfers(
     xp_by_player = xp_map(needed, event_ids, ctx)
     pool = candidate_pool(squad, bootstrap, xp_by_player, event_ids, per_position=pool_per_position)
     current_ids = {p.element_id for p in squad.players}
+    drop = _must_drop(remove_player_ids)
+    missing = [pid for pid in drop if pid not in current_ids]
+    if missing:
+        raise ValueError(f"Players not in squad: {missing}")
     sell_of = {p.element_id: p.selling_price for p in squad.players}
     cost_of = {}
     for pid in pool:
@@ -309,6 +319,10 @@ def plan_transfers(
             cost_of[pid] = int((players_by_id.get(pid) or {}).get("now_cost") or 0)
     budget = squad.bank + sum(sell_of.values())
     k = max(0, min(int(max_transfers), SQUAD_SIZE))
+    if len(drop) > k:
+        raise ValueError(
+            f"Need at least {len(drop)} transfers to remove the requested players (got max {k})"
+        )
     new_ids = _solve_squad(
         pool=pool,
         players_by_id=players_by_id,
@@ -316,7 +330,7 @@ def plan_transfers(
         event_ids=event_ids,
         cost_of=cost_of,
         budget=budget,
-        required={},
+        required=drop,
         max_sold=k,
         current_ids=current_ids,
         hit_points=hit_points,
@@ -344,6 +358,7 @@ def plan_chip(
     horizon: int = 1,
     context: ModelContext | None = None,
     pool_per_position: int = PLAN_POOL_PER_POSITION,
+    remove_player_ids: list[int] | None = None,
 ) -> TransferPlan:
     ctx = context or ModelContext(bootstrap=bootstrap)
     use_horizon = 1 if chip == "freehit" else horizon
@@ -355,6 +370,11 @@ def plan_chip(
         pid: int((players_by_id.get(pid) or {}).get("now_cost") or 0) for pid in pool
     }
     budget = squad.bank + sum(p.selling_price for p in squad.players)
+    drop = _must_drop(remove_player_ids)
+    current_ids = {p.element_id for p in squad.players}
+    missing = [pid for pid in drop if pid not in current_ids]
+    if missing:
+        raise ValueError(f"Players not in squad: {missing}")
     new_ids = _solve_squad(
         pool=pool,
         players_by_id=players_by_id,
@@ -362,7 +382,7 @@ def plan_chip(
         event_ids=event_ids,
         cost_of=cost_of,
         budget=budget,
-        required={},
+        required=drop,
         apply_hits=False,
     )
     return _build_result(
@@ -388,6 +408,7 @@ def make_plan(
     context: ModelContext | None = None,
     free_transfers: int | None = None,
     pool_per_position: int = PLAN_POOL_PER_POSITION,
+    remove_player_ids: list[int] | None = None,
 ) -> TransferPlan:
     if chip in {"wildcard", "freehit"}:
         return plan_chip(
@@ -397,6 +418,7 @@ def make_plan(
             horizon=horizon,
             context=context,
             pool_per_position=pool_per_position,
+            remove_player_ids=remove_player_ids,
         )
     return plan_transfers(
         squad,
@@ -406,4 +428,5 @@ def make_plan(
         context=context,
         free_transfers=free_transfers,
         pool_per_position=pool_per_position,
+        remove_player_ids=remove_player_ids,
     )

@@ -127,6 +127,35 @@ def remaining_free_transfers(transfers_block: dict[str, Any] | None) -> int | No
     return max(0, limit - made)
 
 
+def resolve_owned_players(squad: ManagerSquad, tokens: list[str]) -> list[int]:
+    """Map CLI tokens (element id or web_name) to squad player ids. Order preserved."""
+    by_id = {p.element_id: p for p in squad.players}
+    by_name: dict[str, list] = {}
+    for player in squad.players:
+        by_name.setdefault(player.web_name.lower(), []).append(player)
+    resolved: list[int] = []
+    for raw in tokens:
+        token = str(raw).strip()
+        if not token:
+            continue
+        if token.isdigit():
+            pid = int(token)
+            if pid not in by_id:
+                raise ValueError(f"Player {pid} is not in the squad")
+            if pid not in resolved:
+                resolved.append(pid)
+            continue
+        matches = by_name.get(token.lower()) or []
+        if not matches:
+            raise ValueError(f"No squad player matching {token!r}")
+        if len(matches) > 1:
+            raise ValueError(f"Ambiguous web name {token!r}")
+        pid = matches[0].element_id
+        if pid not in resolved:
+            resolved.append(pid)
+    return resolved
+
+
 def load_manager_squad(
     client: FplClient,
     entry_id: int,

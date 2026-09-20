@@ -159,18 +159,24 @@ def rank_replacements(
     horizon: int = 1,
     context: ModelContext | None = None,
     limit: int | None = None,
+    remove_player_id: int | None = None,
 ) -> list[TransferOption]:
     ctx = context or ModelContext(bootstrap=bootstrap)
     event_ids = horizon_event_ids(bootstrap, horizon)
     players_by_id = {int(p["id"]): p for p in bootstrap.get("elements") or []}
     squad_ids = [p.element_id for p in squad.players]
+    if remove_player_id is not None and remove_player_id not in set(squad_ids):
+        raise ValueError(f"Player {remove_player_id} is not in the squad")
     candidate_ids = list(players_by_id.keys())
     needed = list(dict.fromkeys(squad_ids + candidate_ids))
     xp_by_player = _xp_map(needed, event_ids, ctx)
 
     current_sum, current_per = squad_horizon_xi(squad_ids, players_by_id, xp_by_player, event_ids)
     options: list[TransferOption] = []
-    for outgoing in squad.players:
+    outgoing_players = squad.players
+    if remove_player_id is not None:
+        outgoing_players = [p for p in squad.players if p.element_id == remove_player_id]
+    for outgoing in outgoing_players:
         for incoming in bootstrap.get("elements") or []:
             if not is_valid_replacement(squad, outgoing.element_id, incoming, players_by_id):
                 continue

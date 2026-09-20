@@ -3,8 +3,8 @@
 CLI:
 
 ```text
-fpl-radar-backend recommend --entry ID --horizon N [--limit 10]
-fpl-radar-backend plan --entry ID --horizon N --transfers 3
+fpl-radar-backend recommend --entry ID --horizon N [--limit 10] [--remove-player NAME]
+fpl-radar-backend plan --entry ID --horizon N --transfers 3 [--remove-player NAME ...]
 fpl-radar-backend plan --entry ID --horizon N --chip wildcard
 fpl-radar-backend plan --entry ID --chip freehit
 ```
@@ -35,6 +35,8 @@ For current squad and each candidate squad, compute **best XI xP each GW** (1 GK
 
 Hits are **not** subtracted here — the list is for browsing.
 
+`--remove-player` (id or `web_name`, once) keeps only 1-for-1s that transfer that squad player out.
+
 ## plan (at most K, or a chip)
 
 CP-SAT (OR-Tools) on a pruned pool (current 15 + top xP / value / cheap players per position).
@@ -47,7 +49,7 @@ hits      = max(0, n_transfers - free_transfers)
 delta_net = delta_xi - 4 * hits
 ```
 
-`n_transfers ≤ K` (default 3). Fewer moves win if hits eat the gain. An 8 xP XI gain that needs one hit is **+4** net. Budget is net cash: `bank + sells ≥ buys`. Moves are printed cash-positive first so the sequence never goes negative. Squad shape stays 2-5-5-3 (same-position swaps).
+`n_transfers ≤ K` (default 3). Fewer moves win if hits eat the gain. An 8 xP XI gain that needs one hit is **+4** net. Budget is net cash: `bank + sells ≥ buys`. Moves are printed cash-positive first so the sequence never goes negative. Squad shape stays 2-5-5-3 (same-position swaps). Repeat `--remove-player` to force those squad players out; K must be at least that many.
 
 Wildcard / free hit: rebuild any legal 2-5-5-3 15 from `bank + sum(selling prices)`, max 3 per club, no hits. Free hit uses a 1 GW horizon.
 

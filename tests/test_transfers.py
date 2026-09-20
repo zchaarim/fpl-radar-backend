@@ -70,6 +70,14 @@ def test_availability_flags_on_transfer_options() -> None:
     assert "75% next GW" in flagged[0].in_flag
 
 
+def test_rank_remove_player_only_that_out() -> None:
+    boot = bootstrap_sample()
+    squad = _squad()
+    options = rank_replacements(squad, boot, horizon=1, limit=50, remove_player_id=10)
+    assert options
+    assert all(o.element_out == 10 for o in options)
+
+
 def test_rank_limit_is_per_position() -> None:
     boot = bootstrap_sample()
     squad = _squad()
