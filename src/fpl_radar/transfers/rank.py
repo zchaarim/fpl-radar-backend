@@ -48,12 +48,15 @@ def is_valid_replacement(
     return True
 
 
-def _xp_map(player_ids: list[int], event_ids: list[int], context: ModelContext) -> dict[int, dict[int, float]]:
+def xp_map(player_ids: list[int], event_ids: list[int], context: ModelContext) -> dict[int, dict[int, float]]:
     result: dict[int, dict[int, float]] = {}
     for pid in player_ids:
         xp = expected_points(pid, event_ids, context)
         result[pid] = xp.per_event
     return result
+
+
+_xp_map = xp_map
 
 
 def best_xi_points(
@@ -87,6 +90,50 @@ def best_xi_points(
             total = sum(gk) + sum(defs[:n_def]) + sum(mids[:n_mid]) + sum(fwds[:n_fwd])
             best = max(best, total)
     return best
+
+
+def best_xi_ids(
+    players: list[tuple[int, int, float]],
+) -> list[int]:
+    """Player ids in the greedy best XI (same formation search as ``best_xi_points``)."""
+    by_type: dict[int, list[tuple[int, float]]] = {
+        ELEMENT_TYPE_GKP: [],
+        ELEMENT_TYPE_DEF: [],
+        ELEMENT_TYPE_MID: [],
+        ELEMENT_TYPE_FWD: [],
+    }
+    for pid, etype, pts in sorted(players, key=lambda row: row[2], reverse=True):
+        by_type.setdefault(etype, []).append((pid, pts))
+    gk = by_type[ELEMENT_TYPE_GKP][:1]
+    if not gk:
+        return []
+    defs = by_type[ELEMENT_TYPE_DEF]
+    mids = by_type[ELEMENT_TYPE_MID]
+    fwds = by_type[ELEMENT_TYPE_FWD]
+    best = -1.0
+    chosen: list[int] = [gk[0][0]]
+    for n_def in range(3, 6):
+        for n_mid in range(2, 6):
+            n_fwd = STARTING_XI - 1 - n_def - n_mid
+            if n_fwd < 1 or n_fwd > 3:
+                continue
+            if len(defs) < n_def or len(mids) < n_mid or len(fwds) < n_fwd:
+                continue
+            total = (
+                gk[0][1]
+                + sum(p[1] for p in defs[:n_def])
+                + sum(p[1] for p in mids[:n_mid])
+                + sum(p[1] for p in fwds[:n_fwd])
+            )
+            if total > best:
+                best = total
+                chosen = (
+                    [gk[0][0]]
+                    + [p[0] for p in defs[:n_def]]
+                    + [p[0] for p in mids[:n_mid]]
+                    + [p[0] for p in fwds[:n_fwd]]
+                )
+    return chosen
 
 
 def squad_horizon_xi(

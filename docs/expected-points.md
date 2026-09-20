@@ -99,4 +99,4 @@ xG/xA/90, team strengths, and minutes now shrink ([shrinkage](shrinkage.md)). St
 - **DefCon, bonus, saves, cards** are not opponent-adjusted.
 - **Set pieces / penalties** are not modelled. The public `set-piece-notes` payload is an empty placeholder; the website notes are messy (multiple names, only when first-choice is off).
 - Own goals / penalty save-miss omitted. Horizon copies the same form minutes to every GW; yellow/red flags are listed on recommend instead of zeroing xP.
-- **Transfers** rank 1-for-1 best-XI delta only: no hits, free transfers, captain 2×, or chip sequences.
+- **Transfers:** `recommend` is 1-for-1 browse (no hit cost). `plan` subtracts 4 xP per transfer beyond remaining FTs, or rebuilds a 15 for wildcard/free hit. Captain 2× is still omitted.

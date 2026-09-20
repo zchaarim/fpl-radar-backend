@@ -71,7 +71,7 @@ Guest Cookie values (`pl_guest_id`, Cloudflare, analytics) are ignored so they d
 Legacy `pl_profile` cookies still work if present (`FPL_SESSION_COOKIE` / `--session-cookie`).
 
 - `me/` — `FplAuthClient.me` — logged-in manager; `player.entry` must match the requested team id
-- `my-team/{entry_id}/` — `FplAuthClient.my_team` — `purchase_price`, `selling_price`, live `transfers.bank`, chips
+- `my-team/{entry_id}/` — `FplAuthClient.my_team` — `purchase_price`, `selling_price`, live `transfers.bank`, `transfers.limit` / `made` (remaining FTs), chips
 
 Mismatch between cookie entry and `--entry` is a hard error. Authenticated payloads are **not** written to `data/cache`.
 

@@ -13,6 +13,7 @@ from fpl_radar.identity.match import identity_coverage
 from fpl_radar.ingest.sync import default_cache, load_model_context, sync_fpl, sync_understat
 from fpl_radar.models import TransferOption
 from fpl_radar.squad import load_manager_squad
+from fpl_radar.transfers.plan import make_plan
 from fpl_radar.transfers.rank import rank_replacements
 from fpl_radar.xp.model import expected_points, horizon_event_ids, rank_horizon_xp
 
@@ -147,6 +148,81 @@ def cmd_recommend(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_plan(args: argparse.Namespace) -> int:
+    client = _client()
+    squad = load_manager_squad(
+        client,
+        args.entry,
+        budget_remaining=args.bank,
+        auth_client=_auth(args),
+    )
+    ctx = load_model_context(client)
+    chip = None if args.chip == "none" else args.chip
+    horizon = 1 if chip == "freehit" else args.horizon
+    try:
+        plan = make_plan(
+            squad,
+            ctx.bootstrap,
+            horizon=horizon,
+            max_transfers=args.transfers,
+            chip=chip,
+            context=ctx,
+            free_transfers=args.ft,
+        )
+    except (ValueError, RuntimeError) as exc:
+        print(exc)
+        return 1
+    source = "minutes + xGI + CS/GC + DefCon + bonus + saves + cards"
+    if plan.placeholder:
+        source = "placeholder xP from FPL ep_next"
+    ft_src = squad.free_transfers_source if args.ft is None else "caller_override"
+    chip_txt = plan.chip or "transfers"
+    print(
+        f"Plan {chip_txt} | {plan.n_transfers} moves | FT {plan.free_transfers} ({ft_src}) | "
+        f"hits {plan.hits} (−{plan.hit_cost:.0f}) | horizon {horizon} GW ({source})"
+    )
+    print(
+        f"  XI {plan.current_xi:.2f} -> {plan.planned_xi:.2f}  "
+        f"delta_xi {plan.delta_xi:+.2f}  delta_net {plan.delta_net:+.2f}  "
+        f"bank_after £{plan.bank_after / 10:.1f}"
+    )
+    players_by_id = {int(p["id"]): p for p in ctx.bootstrap.get("elements") or []}
+    teams = {int(t["id"]): t.get("short_name") for t in ctx.bootstrap.get("teams") or []}
+    starters = set(plan.starter_ids)
+    if plan.moves:
+        print("Moves (cash-positive first)")
+        for move in plan.moves:
+            flags = []
+            if move.out_flag:
+                flags.append(f"out {move.out_flag}")
+            if move.in_flag:
+                flags.append(f"in {move.in_flag}")
+            flag_txt = f"  ({'; '.join(flags)})" if flags else ""
+            print(
+                f"  {move.out_name} -> {move.in_name}  "
+                f"cash {move.cash_delta / 10:+.1f}{flag_txt}"
+            )
+    print("Squad")
+    grouped: dict[int, list[int]] = {etype: [] for etype in POSITION_ORDER}
+    for pid in plan.squad_ids:
+        meta = players_by_id.get(pid) or {}
+        grouped.setdefault(int(meta.get("element_type") or 0), []).append(pid)
+
+    def render(pid: int) -> str:
+        meta = players_by_id.get(pid) or {}
+        club = teams.get(int(meta.get("team") or 0), "?")
+        role = "XI" if pid in starters else "bench"
+        flag = availability_note(meta)
+        flag_txt = f"  ({flag})" if flag else ""
+        return (
+            f"  {(meta.get('web_name') or str(pid)):16} {club:4} {role:5} "
+            f"£{int(meta.get('now_cost') or 0) / 10:4.1f}{flag_txt}"
+        )
+
+    _print_position_blocks(grouped, render)
+    return 0
+
+
 def cmd_xp(args: argparse.Namespace) -> int:
     ctx = load_model_context(_client())
     if ctx.features is None:
@@ -235,6 +311,25 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--api-token", default=None)
     rec.add_argument("--session-cookie", default=None)
     rec.set_defaults(func=cmd_recommend)
+
+    plan = sub.add_parser(
+        "plan",
+        help="Best at-most-K transfers (with hits) or a wildcard/free-hit 15",
+    )
+    plan.add_argument("--entry", type=int, required=True)
+    plan.add_argument("--horizon", type=int, default=1)
+    plan.add_argument("--transfers", type=int, default=3, help="Max transfers (ignored for chips)")
+    plan.add_argument(
+        "--chip",
+        choices=("none", "wildcard", "freehit"),
+        default="none",
+        help="Rebuild the 15; freehit uses a 1 GW horizon",
+    )
+    plan.add_argument("--ft", type=int, default=None, help="Override remaining free transfers")
+    plan.add_argument("--bank", type=float, default=None)
+    plan.add_argument("--api-token", default=None)
+    plan.add_argument("--session-cookie", default=None)
+    plan.set_defaults(func=cmd_plan)
 
     xp = sub.add_parser("xp", help="List players by expected points over a horizon, top N per position")
     xp.add_argument("--horizon", type=int, default=1)

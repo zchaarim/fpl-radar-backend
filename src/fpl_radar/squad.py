@@ -5,7 +5,7 @@ from typing import Any
 
 from fpl_radar.clients.auth import AuthError, FplAuthClient
 from fpl_radar.clients.fpl import FplApiError, FplClient
-from fpl_radar.fpl_rules import estimated_selling_price, sell_on_fee, start_price
+from fpl_radar.fpl_rules import DEFAULT_FREE_TRANSFERS, estimated_selling_price, sell_on_fee, start_price
 from fpl_radar.models import ManagerSquad, PriceSource, SquadPlayer
 
 logger = logging.getLogger(__name__)
@@ -118,6 +118,15 @@ def _bank_from_public(
     return 0, "missing"
 
 
+def remaining_free_transfers(transfers_block: dict[str, Any] | None) -> int | None:
+    """``my-team.transfers``: remaining FT = limit − made. None if the payload omits limit."""
+    if not transfers_block or transfers_block.get("limit") is None:
+        return None
+    limit = int(transfers_block["limit"])
+    made = int(transfers_block.get("made") or 0)
+    return max(0, limit - made)
+
+
 def load_manager_squad(
     client: FplClient,
     entry_id: int,
@@ -142,6 +151,8 @@ def load_manager_squad(
     bank, bank_source = _bank_from_public(entry, history)
     authenticated = False
     my_team: dict[str, Any] | None = None
+    free_transfers = DEFAULT_FREE_TRANSFERS
+    free_transfers_source = "default"
 
     if auth_client is not None:
         auth_client.require_entry_match(entry_id)
@@ -150,6 +161,10 @@ def load_manager_squad(
         transfers_block = my_team.get("transfers") or {}
         if transfers_block.get("bank") is not None:
             bank, bank_source = int(transfers_block["bank"]), "my_team.transfers.bank"
+        remaining = remaining_free_transfers(transfers_block)
+        if remaining is not None:
+            free_transfers = remaining
+            free_transfers_source = "my_team.transfers"
         auth_ids = {int(p["element"]) for p in my_team.get("picks") or []}
         public_ids = {int(p["element"]) for p in picks}
         if auth_ids and public_ids and auth_ids != public_ids:
@@ -215,4 +230,6 @@ def load_manager_squad(
         bank_source=bank_source,
         players=squad_players,
         authenticated=authenticated,
+        free_transfers=free_transfers,
+        free_transfers_source=free_transfers_source,
     )
