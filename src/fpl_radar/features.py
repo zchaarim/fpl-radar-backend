@@ -144,6 +144,7 @@ def rank_xgi_rates(
 ) -> list[tuple[dict[str, Any], PlayerRates]]:
     """Players sorted by xGI/90, ``limit_per_position`` kept for each role."""
     by_id = {int(p["id"]): p for p in bootstrap.get("elements") or []}
+    floor = max(float(min_minutes), 0.0)
     rows: list[tuple[dict[str, Any], PlayerRates]] = []
     floor = max(float(min_minutes), 0.0)
     for eid, rates in features.players.items():

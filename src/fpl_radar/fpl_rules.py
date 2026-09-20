@@ -45,6 +45,7 @@ SCORING_DEFAULTS: dict[str, int | float] = {
     "defcon_def_threshold": 10,
     "defcon_mid_fwd_threshold": 12,
     "defcon_points": 2,
+    "transfer_cost": 4,
 }
 
 ELEMENT_TYPE_GKP = 1
@@ -62,6 +63,14 @@ POSITION_LABELS = {
 MAX_PLAYERS_PER_CLUB = 3
 SQUAD_SIZE = 15
 STARTING_XI = 11
+SQUAD_SHAPE = {
+    ELEMENT_TYPE_GKP: 2,
+    ELEMENT_TYPE_DEF: 5,
+    ELEMENT_TYPE_MID: 5,
+    ELEMENT_TYPE_FWD: 3,
+}
+DEFAULT_FREE_TRANSFERS = 1
+PLAN_POOL_PER_POSITION = 40
 
 # Shrinkage k: equivalent sample size of the prior. After n = k, 50/50 sample vs prior.
 # Chosen from how fast each signal stabilizes (not an FPL backtest). See docs/shrinkage.md.
@@ -207,11 +216,22 @@ def scoring_table(game_settings: dict[str, Any] | None = None) -> dict[str, int 
         "scoring_goal_mid": "goal_mid",
         "scoring_goal_fwd": "goal_fwd",
         "scoring_assist": "assist",
+        "scoring_transfer_cost": "transfer_cost",
     }
     for src, dest in mapping.items():
         if src in game_settings and game_settings[src] is not None:
             table[dest] = game_settings[src]
     return table
+
+
+def transfer_hit_cost(
+    n_transfers: int,
+    free_transfers: int,
+    points_per_hit: float = 4.0,
+) -> tuple[int, float]:
+    """Hits and xP cost: unused FTs do not score; extras cost ``points_per_hit`` each."""
+    hits = max(0, int(n_transfers) - max(int(free_transfers), 0))
+    return hits, hits * float(points_per_hit)
 
 
 T = TypeVar("T")

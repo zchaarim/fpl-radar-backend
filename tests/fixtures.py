@@ -49,6 +49,11 @@ def bootstrap_sample() -> dict[str, Any]:
         (18, "CLUB4A", 4, 3, 50),
         (19, "CLUB4B", 4, 3, 50),
         (20, "CLUB4C", 4, 4, 50),
+        (21, "GK3", 5, 1, 40),
+        (22, "DEF7", 5, 2, 40),
+        (23, "MID7", 5, 3, 50),
+        (24, "FWD4", 5, 4, 55),
+        (25, "FWD5", 1, 4, 60),
     ]
     for row in template:
         elements.append(player(*row))

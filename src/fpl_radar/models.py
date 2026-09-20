@@ -35,6 +35,8 @@ class ManagerSquad(BaseModel):
     bank_source: str
     players: list[SquadPlayer]
     authenticated: bool = False
+    free_transfers: int = 1
+    free_transfers_source: str = "default"
 
 
 class PlayerXp(BaseModel):
@@ -62,4 +64,35 @@ class TransferOption(BaseModel):
     per_event_delta: dict[int, float] = Field(default_factory=dict)
     out_flag: str = ""
     in_flag: str = ""
+    placeholder: bool = True
+
+
+class PlanMove(BaseModel):
+    element_out: int
+    element_in: int
+    out_name: str
+    in_name: str
+    selling_price: int
+    now_cost_in: int
+    cash_delta: int
+    element_type: int = 0
+    out_flag: str = ""
+    in_flag: str = ""
+
+
+class TransferPlan(BaseModel):
+    chip: str | None = None
+    n_transfers: int = 0
+    free_transfers: int = 1
+    hits: int = 0
+    hit_cost: float = 0.0
+    delta_xi: float = 0.0
+    delta_net: float = 0.0
+    current_xi: float = 0.0
+    planned_xi: float = 0.0
+    bank_after: int = 0
+    squad_ids: list[int] = Field(default_factory=list)
+    starter_ids: list[int] = Field(default_factory=list)
+    moves: list[PlanMove] = Field(default_factory=list)
+    per_event_delta: dict[int, float] = Field(default_factory=dict)
     placeholder: bool = True

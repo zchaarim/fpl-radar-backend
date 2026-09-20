@@ -17,10 +17,12 @@ python -m fpl_radar sync
 
 ```text
 python -m fpl_radar sync
-python -m fpl_radar xgi --limit 10 --min-minutes 180
+python -m fpl_radar xgi --limit 10 --min-minutes 200
 python -m fpl_radar xp --horizon 6 --limit 10
 python -m fpl_radar squad --entry 123456 --horizon 6
-python -m fpl_radar recommend --entry 123456 --horizon 6 --limit 10
+python -m fpl_radar recommend --entry 123456 --horizon 6 --limit 10 --remove-player Haaland
+python -m fpl_radar plan --entry 123456 --horizon 6 --transfers 3 --remove-player Haaland --remove-player Salah
+python -m fpl_radar plan --entry 123456 --chip wildcard --horizon 6
 ```
 
 The install also provides the `fpl-radar-backend` console script.
@@ -37,7 +39,7 @@ Or `--api-token eyJ...`. Tokens expire after a few hours. Guest cookies (`pl_gue
 
 ## Front-end later
 
-A website will call this backend over HTTP. Do not put ranking logic in argparse handlers. The CLI should stay a thin wrapper around `load_manager_squad`, `expected_points`, `rank_horizon_xp`, and `rank_replacements`. `squad` prints each owned player’s horizon xP and xGI/90. `--limit` is **per position** (GKP, DEF, MID, FWD). The future API can reuse those same functions (JSON in/out, auth still optional and never cached). The front-end will live in a different repo.
+A website will call this backend over HTTP. Do not put ranking logic in argparse handlers. The CLI should stay a thin wrapper around `load_manager_squad`, `expected_points`, `rank_horizon_xp`, `rank_replacements`, and `make_plan`. `squad` prints each owned player’s horizon xP and xGI/90. `--limit` is **per position** (GKP, DEF, MID, FWD). `plan` returns one hit-aware transfer set or a wildcard/free-hit 15. The future API can reuse those same functions (JSON in/out, auth still optional and never cached). The front-end will live in a different repo.
 
 ## Docs
 

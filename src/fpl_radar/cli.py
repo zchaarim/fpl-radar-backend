@@ -12,7 +12,8 @@ from fpl_radar.fpl_rules import POSITION_LABELS, POSITION_ORDER
 from fpl_radar.identity.match import identity_coverage
 from fpl_radar.ingest.sync import default_cache, load_model_context, sync_fpl, sync_understat
 from fpl_radar.models import TransferOption
-from fpl_radar.squad import load_manager_squad
+from fpl_radar.squad import load_manager_squad, resolve_owned_players
+from fpl_radar.transfers.plan import make_plan
 from fpl_radar.transfers.rank import rank_replacements
 from fpl_radar.xp.model import expected_points, horizon_event_ids, rank_horizon_xp
 
@@ -113,18 +114,31 @@ def cmd_recommend(args: argparse.Namespace) -> int:
         auth_client=_auth(args),
     )
     ctx = load_model_context(client)
+    remove_id = None
+    tokens = getattr(args, "remove_player", None) or []
+    if tokens:
+        if len(tokens) > 1:
+            print("recommend --remove-player accepts a single squad player")
+            return 1
+        try:
+            remove_id = resolve_owned_players(squad, tokens)[0]
+        except ValueError as exc:
+            print(exc)
+            return 1
     options = rank_replacements(
         squad,
         ctx.bootstrap,
         horizon=args.horizon,
         context=ctx,
         limit=args.limit,
+        remove_player_id=remove_id,
     )
     source = "minutes + xGI + CS/GC + DefCon + bonus + saves + cards"
     if options and options[0].placeholder:
         source = "placeholder xP from FPL ep_next"
     print(
         f"Top {args.limit} 1-for-1 options per position over {args.horizon} GW ({source})"
+        + (f"  out {next(p.web_name for p in squad.players if p.element_id == remove_id)}" if remove_id else "")
     )
     grouped: dict[int, list[TransferOption]] = {etype: [] for etype in POSITION_ORDER}
     for option in options:
@@ -141,6 +155,90 @@ def cmd_recommend(args: argparse.Namespace) -> int:
             f"  {option.out_name} -> {option.in_name}  delta {option.delta:+.2f}  "
             f"in_xP {option.incoming_horizon_xp:.2f}  bank_after £{option.bank_after / 10:.1f}  "
             f"[{option.price_source.value}]{flag_txt}"
+        )
+
+    _print_position_blocks(grouped, render)
+    return 0
+
+
+def cmd_plan(args: argparse.Namespace) -> int:
+    client = _client()
+    squad = load_manager_squad(
+        client,
+        args.entry,
+        budget_remaining=args.bank,
+        auth_client=_auth(args),
+    )
+    ctx = load_model_context(client)
+    chip = None if args.chip == "none" else args.chip
+    horizon = 1 if chip == "freehit" else args.horizon
+    remove_ids: list[int] | None = None
+    tokens = getattr(args, "remove_player", None) or []
+    if tokens:
+        try:
+            remove_ids = resolve_owned_players(squad, tokens)
+        except ValueError as exc:
+            print(exc)
+            return 1
+    try:
+        plan = make_plan(
+            squad,
+            ctx.bootstrap,
+            horizon=horizon,
+            max_transfers=args.transfers,
+            chip=chip,
+            context=ctx,
+            free_transfers=args.ft,
+            remove_player_ids=remove_ids,
+        )
+    except (ValueError, RuntimeError) as exc:
+        print(exc)
+        return 1
+    source = "minutes + xGI + CS/GC + DefCon + bonus + saves + cards"
+    if plan.placeholder:
+        source = "placeholder xP from FPL ep_next"
+    ft_src = squad.free_transfers_source if args.ft is None else "caller_override"
+    chip_txt = plan.chip or "transfers"
+    print(
+        f"Plan {chip_txt} | {plan.n_transfers} moves | FT {plan.free_transfers} ({ft_src}) | "
+        f"hits {plan.hits} (−{plan.hit_cost:.0f}) | horizon {horizon} GW ({source})"
+    )
+    print(
+        f"  XI {plan.current_xi:.2f} -> {plan.planned_xi:.2f}  "
+        f"delta_xi {plan.delta_xi:+.2f}  delta_net {plan.delta_net:+.2f}  "
+        f"bank_after £{plan.bank_after / 10:.1f}"
+    )
+    players_by_id = {int(p["id"]): p for p in ctx.bootstrap.get("elements") or []}
+    teams = {int(t["id"]): t.get("short_name") for t in ctx.bootstrap.get("teams") or []}
+    starters = set(plan.starter_ids)
+    if plan.moves:
+        print("Moves (cash-positive first)")
+        for move in plan.moves:
+            flags = []
+            if move.out_flag:
+                flags.append(f"out {move.out_flag}")
+            if move.in_flag:
+                flags.append(f"in {move.in_flag}")
+            flag_txt = f"  ({'; '.join(flags)})" if flags else ""
+            print(
+                f"  {move.out_name} -> {move.in_name}  "
+                f"cash {move.cash_delta / 10:+.1f}{flag_txt}"
+            )
+    print("Squad")
+    grouped: dict[int, list[int]] = {etype: [] for etype in POSITION_ORDER}
+    for pid in plan.squad_ids:
+        meta = players_by_id.get(pid) or {}
+        grouped.setdefault(int(meta.get("element_type") or 0), []).append(pid)
+
+    def render(pid: int) -> str:
+        meta = players_by_id.get(pid) or {}
+        club = teams.get(int(meta.get("team") or 0), "?")
+        role = "XI" if pid in starters else "bench"
+        flag = availability_note(meta)
+        flag_txt = f"  ({flag})" if flag else ""
+        return (
+            f"  {(meta.get('web_name') or str(pid)):16} {club:4} {role:5} "
+            f"£{int(meta.get('now_cost') or 0) / 10:4.1f}{flag_txt}"
         )
 
     _print_position_blocks(grouped, render)
@@ -190,7 +288,8 @@ def cmd_xgi(args: argparse.Namespace) -> int:
     mins_note = f"  min minutes {args.min_minutes:g}" if args.min_minutes else ""
     print(
         f"Top {args.limit} players per position by xGI/90  "
-        f"matched {matched}/{len(features.players)}{mins_note}"
+        f"min minutes {args.min_minutes:g}  "
+        f"matched {matched}/{len(features.players)}"
     )
     grouped: dict[int, list[tuple[dict, Any]]] = {etype: [] for etype in POSITION_ORDER}
     for player, rates in rows:
@@ -240,7 +339,40 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--bank", type=float, default=None)
     rec.add_argument("--api-token", default=None)
     rec.add_argument("--session-cookie", default=None)
+    rec.add_argument(
+        "--remove-player",
+        action="append",
+        default=None,
+        metavar="PLAYER",
+        help="Only 1-for-1s that transfer this squad player out (id or web_name; once)",
+    )
     rec.set_defaults(func=cmd_recommend)
+
+    plan = sub.add_parser(
+        "plan",
+        help="Best at-most-K transfers (with hits) or a wildcard/free-hit 15",
+    )
+    plan.add_argument("--entry", type=int, required=True)
+    plan.add_argument("--horizon", type=int, default=1)
+    plan.add_argument("--transfers", type=int, default=3, help="Max transfers (ignored for chips)")
+    plan.add_argument(
+        "--chip",
+        choices=("none", "wildcard", "freehit"),
+        default="none",
+        help="Rebuild the 15; freehit uses a 1 GW horizon",
+    )
+    plan.add_argument("--ft", type=int, default=None, help="Override remaining free transfers")
+    plan.add_argument("--bank", type=float, default=None)
+    plan.add_argument("--api-token", default=None)
+    plan.add_argument("--session-cookie", default=None)
+    plan.add_argument(
+        "--remove-player",
+        action="append",
+        default=None,
+        metavar="PLAYER",
+        help="Must sell this squad player (repeatable; id or web_name)",
+    )
+    plan.set_defaults(func=cmd_plan)
 
     xp = sub.add_parser("xp", help="List players by expected points over a horizon, top N per position")
     xp.add_argument("--horizon", type=int, default=1)
@@ -253,7 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--min-minutes",
         type=float,
         default=0.0,
-        help="Drop players with fewer season minutes than this",
+        help="Drop players with fewer than this many minutes in the rate sample",
     )
     xgi.set_defaults(func=cmd_xgi)
     return parser
