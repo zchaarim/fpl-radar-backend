@@ -30,7 +30,7 @@ python -m fpl_radar.api.app
 
 The first `/v1/status` or `/squad` can take a while if `data/cache` is cold (builds `ModelContext`).
 
-CORS origins: `FPL_CORS_ORIGINS` (comma-separated). Default is localhost:3000 and :5173.
+CORS origins: `FPL_CORS_ORIGINS` (comma-separated explicit origins). Default is localhost:3000 and :5173. Do not set `*`; credentials are enabled.
 
 ## Viewing the API (browser)
 
@@ -56,12 +56,12 @@ On `/docs`:
 Invoke-RestMethod http://127.0.0.1:8000/v1/status
 Invoke-RestMethod http://127.0.0.1:8000/openapi.json | Select-Object info, paths
 Invoke-RestMethod http://127.0.0.1:8000/v1/entries/2075419
-Invoke-RestMethod "http://127.0.0.1:8000/v1/entries/2075419/squad?horizon=5"
+Invoke-RestMethod "http://127.0.0.1:8000/v1/entries/2075419/squad?horizon=5&bank=1.2"
 Invoke-RestMethod "http://127.0.0.1:8000/v1/xp?horizon=5&limit=10"
 Invoke-RestMethod "http://127.0.0.1:8000/v1/xgi?limit=10&min_minutes=200"
-Invoke-RestMethod "http://127.0.0.1:8000/v1/entries/2075419/recommendations?horizon=5&limit=10"
+Invoke-RestMethod "http://127.0.0.1:8000/v1/entries/2075419/recommendations?horizon=5&limit=10&bank=1.2"
 Invoke-RestMethod "http://127.0.0.1:8000/v1/entries/2075419/recommendations?horizon=5&remove_player=Palmer"
-$body = @{ horizon = 5; transfers = 3; chip = "none"; remove_player = @("King", "Barry") } | ConvertTo-Json
+$body = @{ horizon = 5; transfers = 3; chip = "none"; bank = 1.2; remove_player = @("King", "Barry") } | ConvertTo-Json
 Invoke-RestMethod -Method POST "http://127.0.0.1:8000/v1/entries/2075419/plan" -ContentType "application/json" -Body $body
 Invoke-RestMethod -Method POST http://127.0.0.1:8000/v1/sync -Headers @{ "X-Sync-Token" = "dev" }
 ```
@@ -83,11 +83,11 @@ python -m pytest -q
 |---|---|---|
 | GET | `/v1/status` | none |
 | POST | `/v1/sync` | header `X-Sync-Token` = `FPL_SYNC_TOKEN` |
-| GET | `/v1/entries/{entry_id}` | none (public reconstruction) |
-| GET | `/v1/entries/{entry_id}/squad?horizon=5` | none |
+| GET | `/v1/entries/{entry_id}?bank=` | none (public reconstruction) |
+| GET | `/v1/entries/{entry_id}/squad?horizon=5&bank=` | none |
 | GET | `/v1/xp?horizon=5&limit=10` | none |
 | GET | `/v1/xgi?limit=10&min_minutes=0` | none |
-| GET | `/v1/entries/{entry_id}/recommendations?horizon=5&limit=10&remove_player=` | none |
+| GET | `/v1/entries/{entry_id}/recommendations?horizon=5&limit=10&remove_player=&bank=` | none |
 | POST | `/v1/entries/{entry_id}/plan` | none |
 
 v1 squad is public picks only (estimated sale prices, default FTs). A later in-memory FPL session (option 3) can enrich “mine” without caching JWTs on disk.
@@ -99,13 +99,15 @@ v1 squad is public picks only (estimated sale prices, default FTs). A later in-m
 `POST /v1/entries/{id}/plan` returns **one** plan (same as CLI `plan`), not a list. JSON body:
 
 ```json
-{ "horizon": 5, "transfers": 3, "chip": "none", "ft": null, "remove_player": ["King"] }
+{ "horizon": 5, "transfers": 3, "chip": "none", "ft": null, "bank": 1.2, "remove_player": ["King"] }
 ```
 
 `chip` is `none` | `wildcard` | `freehit` (free hit forces horizon 1). Response is the planned 15, moves (cash-positive first), XI vs bench, hits, and `delta_net`. **400** bad `remove_player` / K too small; **409** if another plan is already solving in this process; **422** if CP-SAT is infeasible. Restart the API process after pulling new routes or `/docs` and curl will 404.
 
-`POST /v1/sync` refreshes FPL + Understat, rebuilds the process-global `ModelContext`, and precomputes player×GW xP (next 15 GWs). A second sync while one is running returns **409**. The in-memory context is also rebuilt if it is older than 1 hour (bootstrap TTL). Set `FPL_SYNC_TOKEN` on Fly.
+`POST /v1/sync` refreshes FPL + Understat, rebuilds the process-global `ModelContext`, and precomputes player×GW xP (next 15 GWs). A second sync while one is running returns **409**. The in-memory context is also rebuilt if it is older than 1 hour (bootstrap TTL). Set `FPL_SYNC_TOKEN` in the process environment. `cache_dir` on `/v1/status` is only filled when that same header is sent.
 
-Scheduled refresh: `FPL_SYNC_INTERVAL_SECONDS` (default 3600). `0` disables the background thread. `/v1/status` reports `context_age_seconds`, `context_stale`, `syncing`, and `xp_precomputed`.
+`bank` is remaining budget in **millions** (same as CLI `--bank`), query on entry/squad/recommend and JSON on plan.
 
-Fly.io: keep an always-on process so OR-Tools and `ModelContext` stay warm. Overlapping wildcard solves are 409 for now; a 202 job queue can wait until we need it.
+Scheduled refresh: `FPL_SYNC_INTERVAL_SECONDS` (default 3600) runs **once at startup**, then that often. `0` disables the background thread. `/v1/status` reports `context_age_seconds`, `context_stale`, `syncing`, and `xp_precomputed`. Treat `features_ready` / `placeholder_xp` as the model signal; `ready` only means a context was built.
+
+Keep a **single process** (do not scale uvicorn workers) so OR-Tools and `ModelContext` stay exclusive. Overlapping wildcard solves are 409; a 202 job queue can wait until we need it. Upstream FPL failures return **404** (unknown entry) or **502** without forwarding FPL’s response body.

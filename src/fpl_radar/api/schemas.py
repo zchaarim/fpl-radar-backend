@@ -155,6 +155,7 @@ class PlanRequest(BaseModel):
     transfers: int = Field(default=3, ge=0, le=15)
     chip: Literal["none", "wildcard", "freehit"] = "none"
     ft: int | None = Field(default=None, ge=0, le=5)
+    bank: float | None = Field(default=None, ge=0)
     remove_player: list[str] = Field(default_factory=list)
 
 

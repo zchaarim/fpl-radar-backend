@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import threading
@@ -31,8 +32,15 @@ logger = logging.getLogger(__name__)
 def cors_origins() -> list[str]:
     raw = os.environ.get(config.CORS_ORIGINS_ENV, "")
     if raw.strip():
-        return [part.strip() for part in raw.split(",") if part.strip()]
-    return list(config.DEFAULT_CORS_ORIGINS)
+        origins = [part.strip() for part in raw.split(",") if part.strip()]
+    else:
+        origins = list(config.DEFAULT_CORS_ORIGINS)
+    if "*" in origins:
+        logger.warning(
+            "FPL_CORS_ORIGINS cannot include * while credentials are enabled; listing explicit origins"
+        )
+        origins = [origin for origin in origins if origin != "*"]
+    return origins or list(config.DEFAULT_CORS_ORIGINS)
 
 
 def resolve_sync_interval(override: int | None) -> int:
@@ -41,7 +49,24 @@ def resolve_sync_interval(override: int | None) -> int:
     raw = os.environ.get(config.SYNC_INTERVAL_ENV)
     if raw is None or not str(raw).strip():
         return config.DEFAULT_SYNC_INTERVAL_SECONDS
-    return max(0, int(raw))
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        logger.warning("Invalid %s=%r; using default %s", config.SYNC_INTERVAL_ENV, raw, config.DEFAULT_SYNC_INTERVAL_SECONDS)
+        return config.DEFAULT_SYNC_INTERVAL_SECONDS
+
+
+def sync_token_matches(provided: str | None, expected: str) -> bool:
+    got = (provided or "").encode("utf-8")
+    want = expected.encode("utf-8")
+    return hmac.compare_digest(got, want)
+
+
+def raise_fpl_http(exc: FplApiError, *, not_found_detail: str | None = None) -> None:
+    logger.warning("FPL request failed: %s", exc)
+    if not_found_detail is not None and exc.status_code == 404:
+        raise HTTPException(status_code=404, detail=not_found_detail) from exc
+    raise HTTPException(status_code=502, detail="FPL API request failed") from exc
 
 
 def create_app(
@@ -56,13 +81,15 @@ def create_app(
         stop = threading.Event()
 
         def loop() -> None:
-            while not stop.wait(interval):
+            while True:
                 try:
                     rt.sync()
                 except SyncInProgress:
                     logger.info("Skipping scheduled sync; one is already running")
                 except Exception:
                     logger.exception("Scheduled league sync failed")
+                if stop.wait(interval):
+                    break
 
         worker: threading.Thread | None = None
         if interval > 0:
@@ -82,20 +109,36 @@ def create_app(
         allow_headers=["*"],
     )
 
-    def load_entry_squad(entry_id: int):
+    def load_entry_squad(entry_id: int, budget_remaining: float | None = None):
         try:
-            return load_manager_squad(rt.fpl_client(), entry_id)
+            return load_manager_squad(
+                rt.fpl_client(),
+                entry_id,
+                budget_remaining=budget_remaining,
+            )
         except FplApiError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise_fpl_http(exc, not_found_detail="Entry not found")
+
+    def model_context():
+        try:
+            return rt.get_context()
+        except FplApiError as exc:
+            raise_fpl_http(exc)
 
     @app.get("/v1/status", response_model=StatusResponse)
-    def status() -> StatusResponse:
-        ctx = rt.get_context()
+    def status(
+        x_sync_token: Annotated[str | None, Header()] = None,
+    ) -> StatusResponse:
+        ctx = model_context()
         identity = identity_coverage(
             ctx.bootstrap.get("elements") or [],
             (ctx.understat_league or {}).get("players") or [],
             ctx.player_match,
         )
+        expected = os.environ.get(config.SYNC_TOKEN_ENV, "")
+        cache_dir = ""
+        if expected and sync_token_matches(x_sync_token, expected):
+            cache_dir = str(config.CACHE_DIR)
         return StatusResponse(
             ready=True,
             current_event=current_event_id(ctx.bootstrap),
@@ -109,7 +152,7 @@ def create_app(
             xp_precomputed=len(ctx.xp_by_player),
             sync_interval_seconds=interval,
             identity=identity,
-            cache_dir=str(config.CACHE_DIR),
+            cache_dir=cache_dir,
         )
 
     @app.post("/v1/sync", response_model=SyncResponse)
@@ -119,12 +162,14 @@ def create_app(
         expected = os.environ.get(config.SYNC_TOKEN_ENV, "")
         if not expected:
             raise HTTPException(status_code=503, detail="FPL_SYNC_TOKEN is not configured")
-        if x_sync_token != expected:
+        if not sync_token_matches(x_sync_token, expected):
             raise HTTPException(status_code=401, detail="Invalid sync token")
         try:
             payload = rt.sync()
         except SyncInProgress as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except FplApiError as exc:
+            raise_fpl_http(exc)
         return SyncResponse(
             fpl=payload["fpl"],
             understat=payload["understat"],
@@ -133,15 +178,23 @@ def create_app(
         )
 
     @app.get("/v1/entries/{entry_id}")
-    def entry(entry_id: int):
-        return entry_summary(load_entry_squad(entry_id))
+    def entry(
+        entry_id: int,
+        bank: Annotated[float | None, Query(ge=0)] = None,
+    ):
+        return entry_summary(load_entry_squad(entry_id, budget_remaining=bank))
 
     @app.get("/v1/entries/{entry_id}/squad")
     def squad(
         entry_id: int,
         horizon: Annotated[int, Query(ge=1, le=15)] = config.DEFAULT_SQUAD_HORIZON,
+        bank: Annotated[float | None, Query(ge=0)] = None,
     ):
-        return squad_payload(load_entry_squad(entry_id), rt.get_context(), horizon)
+        return squad_payload(
+            load_entry_squad(entry_id, budget_remaining=bank),
+            model_context(),
+            horizon,
+        )
 
     @app.get("/v1/entries/{entry_id}/recommendations")
     def recommendations(
@@ -149,12 +202,13 @@ def create_app(
         horizon: Annotated[int, Query(ge=1, le=15)] = config.DEFAULT_SQUAD_HORIZON,
         limit: Annotated[int, Query(ge=1, le=50)] = config.DEFAULT_LIST_LIMIT,
         remove_player: Annotated[str | None, Query()] = None,
+        bank: Annotated[float | None, Query(ge=0)] = None,
     ):
-        loaded = load_entry_squad(entry_id)
+        loaded = load_entry_squad(entry_id, budget_remaining=bank)
         try:
             return recommendations_payload(
                 loaded,
-                rt.get_context(),
+                model_context(),
                 horizon=horizon,
                 limit=limit,
                 remove_player=remove_player,
@@ -164,13 +218,15 @@ def create_app(
 
     @app.post("/v1/entries/{entry_id}/plan")
     def plan(entry_id: int, body: PlanRequest):
-        loaded = load_entry_squad(entry_id)
+        loaded = load_entry_squad(entry_id, budget_remaining=body.bank)
         try:
             rt.begin_plan()
         except PlanInProgress as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         try:
-            return plan_payload(loaded, rt.get_context(), body)
+            return plan_payload(loaded, model_context(), body)
+        except FplApiError as exc:
+            raise_fpl_http(exc)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
@@ -183,7 +239,7 @@ def create_app(
         horizon: Annotated[int, Query(ge=1, le=15)] = config.DEFAULT_SQUAD_HORIZON,
         limit: Annotated[int, Query(ge=1, le=50)] = config.DEFAULT_LIST_LIMIT,
     ):
-        return xp_listing(rt.get_context(), horizon=horizon, limit=limit)
+        return xp_listing(model_context(), horizon=horizon, limit=limit)
 
     @app.get("/v1/xgi")
     def xgi(
@@ -191,7 +247,7 @@ def create_app(
         min_minutes: Annotated[float, Query(ge=0)] = 0.0,
     ):
         try:
-            return xgi_listing(rt.get_context(), limit=limit, min_minutes=min_minutes)
+            return xgi_listing(model_context(), limit=limit, min_minutes=min_minutes)
         except ValueError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 

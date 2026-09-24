@@ -33,12 +33,14 @@ class Runtime:
         context: ModelContext | None = None,
     ) -> None:
         self._lock = threading.Lock()
+        self._cv = threading.Condition(self._lock)
         self.client_factory = client_factory or _default_client
         self.context = context
         self.context_built_at: float | None = time.time() if context is not None else None
         self.last_sync_at: float | None = None
         self.last_sync: dict[str, Any] | None = None
         self._syncing = False
+        self._loading = False
         self._planning = False
         if context is not None and not context.xp_by_player:
             precompute_player_xp(context)
@@ -62,28 +64,52 @@ class Runtime:
         return age >= config.CONTEXT_TTL_SECONDS
 
     def _install(self, ctx: ModelContext) -> None:
-        precompute_player_xp(ctx)
         self.context = ctx
         self.context_built_at = time.time()
 
+    def _build_context(self, client: FplClient | None = None) -> ModelContext:
+        ctx = load_model_context(client or self.client_factory())
+        precompute_player_xp(ctx)
+        return ctx
+
     def get_context(self) -> ModelContext:
-        with self._lock:
-            if self.context is not None and (self._syncing or not self.context_stale()):
-                return self.context
-            ctx = load_model_context(self.client_factory())
-            self._install(ctx)
-            return self.context  # type: ignore[return-value]
+        with self._cv:
+            while True:
+                if self.context is not None and (
+                    self._syncing or self._loading or not self.context_stale()
+                ):
+                    return self.context
+                if self._loading or self._syncing:
+                    self._cv.wait(timeout=120.0)
+                    continue
+                self._loading = True
+                break
+        try:
+            ctx = self._build_context()
+            with self._cv:
+                self._install(ctx)
+                self._cv.notify_all()
+                return self.context  # type: ignore[return-value]
+        except Exception:
+            with self._cv:
+                self._cv.notify_all()
+            raise
+        finally:
+            with self._cv:
+                self._loading = False
+                self._cv.notify_all()
 
     def sync(self) -> dict[str, Any]:
-        with self._lock:
+        with self._cv:
             if self._syncing:
                 raise SyncInProgress("Sync already in progress")
             self._syncing = True
+            self._cv.notify_all()
         try:
             client = self.client_factory()
             fpl_stats = sync_fpl(client)
             us_stats = sync_understat()
-            ctx = load_model_context(client)
+            ctx = self._build_context(client)
             coverage = identity_coverage(
                 ctx.bootstrap.get("elements") or [],
                 (ctx.understat_league or {}).get("players") or [],
@@ -94,14 +120,16 @@ class Runtime:
                 "understat": us_stats,
                 "identity": coverage,
             }
-            with self._lock:
+            with self._cv:
                 self._install(ctx)
                 self.last_sync_at = time.time()
                 self.last_sync = payload
+                self._cv.notify_all()
             return payload
         finally:
-            with self._lock:
+            with self._cv:
                 self._syncing = False
+                self._cv.notify_all()
 
     def begin_plan(self) -> None:
         with self._lock:

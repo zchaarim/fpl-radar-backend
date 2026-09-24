@@ -246,8 +246,6 @@ def plan_payload(
     tokens = [str(token).strip() for token in request.remove_player if str(token).strip()]
     if tokens:
         remove_ids = resolve_owned_players(squad, tokens)
-        if len(remove_ids) != len(tokens):
-            raise ValueError("Could not resolve all remove_player tokens")
     plan = make_plan(
         squad,
         context.bootstrap,
