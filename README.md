@@ -27,6 +27,8 @@ $env:FPL_SYNC_TOKEN = "dev"
 python -m fpl_radar.api
 ```
 
+With the API process running: Swagger http://127.0.0.1:8000/docs , ReDoc http://127.0.0.1:8000/redoc , spec http://127.0.0.1:8000/openapi.json . How to run, click through, and pytest: [docs/api.md](docs/api.md).
+
 The install also provides the `fpl-radar-backend` console script.
 
 Optional exact sale prices (your team only). FPL no longer authenticates `/me/` with cookies. In DevTools, open the **same** `api/me/` request, then **Request headers** → `x-api-authorization`. Copy the JWT (with or without the `Bearer ` prefix):

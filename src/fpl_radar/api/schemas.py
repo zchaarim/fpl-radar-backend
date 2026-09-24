@@ -28,6 +28,12 @@ class StatusResponse(BaseModel):
     features_ready: bool = False
     placeholder_xp: bool = True
     last_sync_at: float | None = None
+    context_built_at: float | None = None
+    context_age_seconds: float | None = None
+    context_stale: bool = False
+    syncing: bool = False
+    xp_precomputed: int = 0
+    sync_interval_seconds: int = 0
     identity: IdentityCoverage = Field(default_factory=IdentityCoverage)
     cache_dir: str = ""
 

@@ -4,7 +4,7 @@ from fpl_radar.api.schemas import EntrySummary, Money, SquadPlayerRow, SquadResp
 from fpl_radar.features import availability_note
 from fpl_radar.fpl_rules import tenths_to_pounds
 from fpl_radar.models import ManagerSquad
-from fpl_radar.xp.model import ModelContext, expected_points, horizon_event_ids
+from fpl_radar.xp.model import ModelContext, horizon_event_ids, player_xp
 
 
 def money(tenths: int) -> Money:
@@ -48,7 +48,7 @@ def squad_payload(squad: ManagerSquad, context: ModelContext, horizon: int) -> S
     rows: list[SquadPlayerRow] = []
     for player in squad.players:
         meta = players_by_id.get(player.element_id) or {}
-        xp = expected_points(player.element_id, event_ids, context)
+        xp = player_xp(player.element_id, event_ids, context)
         rates = context.features.players.get(player.element_id) if context.features else None
         rows.append(
             SquadPlayerRow(
