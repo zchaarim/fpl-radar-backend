@@ -10,9 +10,17 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from fpl_radar import config
-from fpl_radar.api.runtime import Runtime, SyncInProgress
-from fpl_radar.api.schemas import StatusResponse, SyncResponse
-from fpl_radar.api.serialize import current_event_id, entry_summary, squad_payload
+from fpl_radar.api.runtime import PlanInProgress, Runtime, SyncInProgress
+from fpl_radar.api.schemas import PlanRequest, StatusResponse, SyncResponse
+from fpl_radar.api.serialize import (
+    current_event_id,
+    entry_summary,
+    plan_payload,
+    recommendations_payload,
+    squad_payload,
+    xgi_listing,
+    xp_listing,
+)
 from fpl_radar.clients.fpl import FplApiError
 from fpl_radar.identity.match import identity_coverage
 from fpl_radar.squad import load_manager_squad
@@ -74,6 +82,12 @@ def create_app(
         allow_headers=["*"],
     )
 
+    def load_entry_squad(entry_id: int):
+        try:
+            return load_manager_squad(rt.fpl_client(), entry_id)
+        except FplApiError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.get("/v1/status", response_model=StatusResponse)
     def status() -> StatusResponse:
         ctx = rt.get_context()
@@ -120,22 +134,66 @@ def create_app(
 
     @app.get("/v1/entries/{entry_id}")
     def entry(entry_id: int):
-        try:
-            squad = load_manager_squad(rt.fpl_client(), entry_id)
-        except FplApiError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return entry_summary(squad)
+        return entry_summary(load_entry_squad(entry_id))
 
     @app.get("/v1/entries/{entry_id}/squad")
     def squad(
         entry_id: int,
         horizon: Annotated[int, Query(ge=1, le=15)] = config.DEFAULT_SQUAD_HORIZON,
     ):
+        return squad_payload(load_entry_squad(entry_id), rt.get_context(), horizon)
+
+    @app.get("/v1/entries/{entry_id}/recommendations")
+    def recommendations(
+        entry_id: int,
+        horizon: Annotated[int, Query(ge=1, le=15)] = config.DEFAULT_SQUAD_HORIZON,
+        limit: Annotated[int, Query(ge=1, le=50)] = config.DEFAULT_LIST_LIMIT,
+        remove_player: Annotated[str | None, Query()] = None,
+    ):
+        loaded = load_entry_squad(entry_id)
         try:
-            loaded = load_manager_squad(rt.fpl_client(), entry_id)
-        except FplApiError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return squad_payload(loaded, rt.get_context(), horizon)
+            return recommendations_payload(
+                loaded,
+                rt.get_context(),
+                horizon=horizon,
+                limit=limit,
+                remove_player=remove_player,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/v1/entries/{entry_id}/plan")
+    def plan(entry_id: int, body: PlanRequest):
+        loaded = load_entry_squad(entry_id)
+        try:
+            rt.begin_plan()
+        except PlanInProgress as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        try:
+            return plan_payload(loaded, rt.get_context(), body)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            rt.end_plan()
+
+    @app.get("/v1/xp")
+    def xp(
+        horizon: Annotated[int, Query(ge=1, le=15)] = config.DEFAULT_SQUAD_HORIZON,
+        limit: Annotated[int, Query(ge=1, le=50)] = config.DEFAULT_LIST_LIMIT,
+    ):
+        return xp_listing(rt.get_context(), horizon=horizon, limit=limit)
+
+    @app.get("/v1/xgi")
+    def xgi(
+        limit: Annotated[int, Query(ge=1, le=50)] = config.DEFAULT_LIST_LIMIT,
+        min_minutes: Annotated[float, Query(ge=0)] = 0.0,
+    ):
+        try:
+            return xgi_listing(rt.get_context(), limit=limit, min_minutes=min_minutes)
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return app
 

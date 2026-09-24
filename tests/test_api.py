@@ -185,8 +185,194 @@ def test_entry_and_squad(monkeypatch) -> None:
     assert payload["placeholder"] is True
 
 
+def test_recommendations(monkeypatch) -> None:
+    from collections import Counter
+
+    client = _app(monkeypatch)
+    response = client.get("/v1/entries/99/recommendations?horizon=2&limit=1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["entry_id"] == 99
+    assert body["horizon"] == 2
+    assert body["limit"] == 1
+    assert body["options"]
+    counts = Counter(row["element_type"] for row in body["options"])
+    assert all(n <= 1 for n in counts.values())
+    first = body["options"][0]
+    assert "delta" in first
+    assert first["selling_price"]["tenths"] > 0
+    assert "pounds" in first["bank_after"]
+
+
+def test_recommendations_remove_player(monkeypatch) -> None:
+    client = _app(monkeypatch)
+    response = client.get("/v1/entries/99/recommendations?horizon=2&limit=10&remove_player=MID3")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["remove_player_id"] == 10
+    assert body["remove_player_name"] == "MID3"
+    assert body["options"]
+    assert all(row["element_out"] == 10 for row in body["options"])
+
+
+def test_recommendations_unknown_player(monkeypatch) -> None:
+    client = _app(monkeypatch)
+    response = client.get("/v1/entries/99/recommendations?remove_player=Nobody")
+    assert response.status_code == 400
+
+
 def test_precompute_player_xp_covers_roster() -> None:
     boot = bootstrap_sample()
     ctx = precompute_player_xp(ModelContext(bootstrap=boot), horizon=2)
     assert ctx.xp_event_ids == [2]
     assert set(ctx.xp_by_player) == {int(p["id"]) for p in boot["elements"]}
+
+
+def test_xp_listing_per_position_limit(monkeypatch) -> None:
+    from collections import Counter
+
+    from fpl_radar.fpl_rules import POSITION_ORDER
+
+    client = _app(monkeypatch)
+    response = client.get("/v1/xp?horizon=2&limit=1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["horizon"] == 2
+    assert body["limit"] == 1
+    assert body["placeholder"] is True
+    counts = Counter(row["element_type"] for row in body["players"])
+    assert all(n <= 1 for n in counts.values())
+    assert set(counts) <= set(POSITION_ORDER)
+    assert "horizon_xp" in body["players"][0]
+    assert body["players"][0]["now_cost"]["tenths"] > 0
+
+
+def test_xgi_requires_features(monkeypatch) -> None:
+    client = _app(monkeypatch)
+    response = client.get("/v1/xgi")
+    assert response.status_code == 503
+
+
+def test_xgi_listing(monkeypatch) -> None:
+    from collections import Counter
+
+    from fpl_radar.features import build_feature_set
+    from tests.test_features import _us_league
+
+    boot = bootstrap_sample()
+    runtime = Runtime(
+        client_factory=lambda: client_from_routes(public_routes()),
+        context=ModelContext(bootstrap=boot, features=build_feature_set(boot, _us_league())),
+    )
+    client = _app(monkeypatch, runtime)
+    response = client.get("/v1/xgi?limit=2&min_minutes=0")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["limit"] == 2
+    assert body["min_minutes"] == 0
+    assert body["players"]
+    assert "xgi90" in body["players"][0]
+    counts = Counter(row["element_type"] for row in body["players"])
+    assert all(n <= 2 for n in counts.values())
+
+
+def test_plan_returns_one_object(monkeypatch) -> None:
+    from fpl_radar.models import PlanMove, TransferPlan
+
+    def fake_make(*_args, **kwargs) -> TransferPlan:
+        return TransferPlan(
+            chip=kwargs.get("chip"),
+            n_transfers=1,
+            free_transfers=1,
+            hits=0,
+            hit_cost=0.0,
+            current_xi=10.0,
+            planned_xi=12.0,
+            delta_xi=2.0,
+            delta_net=2.0,
+            bank_after=5,
+            squad_ids=list(range(1, 16)),
+            starter_ids=list(range(1, 12)),
+            moves=[
+                PlanMove(
+                    element_out=10,
+                    element_in=16,
+                    out_name="MID3",
+                    in_name="MID6",
+                    selling_price=60,
+                    now_cost_in=85,
+                    cash_delta=-25,
+                    element_type=3,
+                )
+            ],
+            placeholder=True,
+        )
+
+    monkeypatch.setattr("fpl_radar.api.serialize.make_plan", fake_make)
+    client = _app(monkeypatch)
+    response = client.post(
+        "/v1/entries/99/plan",
+        json={"horizon": 5, "transfers": 3, "chip": "none"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["entry_id"] == 99
+    assert body["chip"] is None
+    assert body["n_transfers"] == 1
+    assert body["delta_net"] == 2.0
+    assert body["bank_after"] == {"tenths": 5, "pounds": 0.5}
+    assert len(body["moves"]) == 1
+    assert body["moves"][0]["out_name"] == "MID3"
+    assert len(body["squad"]) == 15
+    assert body["squad"][0]["role"] in {"XI", "bench"}
+    assert isinstance(body, dict) and "plans" not in body
+
+
+def test_plan_freehit_forces_horizon_one(monkeypatch) -> None:
+    from fpl_radar.models import TransferPlan
+
+    captured: dict = {}
+
+    def fake_make(*_args, **kwargs) -> TransferPlan:
+        captured["horizon"] = kwargs.get("horizon")
+        captured["chip"] = kwargs.get("chip")
+        return TransferPlan(chip="freehit", squad_ids=list(range(1, 16)), starter_ids=list(range(1, 12)))
+
+    monkeypatch.setattr("fpl_radar.api.serialize.make_plan", fake_make)
+    client = _app(monkeypatch)
+    response = client.post("/v1/entries/99/plan", json={"horizon": 5, "chip": "freehit"})
+    assert response.status_code == 200
+    assert captured["chip"] == "freehit"
+    assert captured["horizon"] == 1
+    assert response.json()["horizon"] == 1
+    assert response.json()["chip"] == "freehit"
+
+
+def test_plan_unknown_remove_player(monkeypatch) -> None:
+    client = _app(monkeypatch)
+    response = client.post("/v1/entries/99/plan", json={"remove_player": ["Nobody"]})
+    assert response.status_code == 400
+
+
+def test_plan_infeasible(monkeypatch) -> None:
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("Could not find a legal plan (infeasible squad/budget).")
+
+    monkeypatch.setattr("fpl_radar.api.serialize.make_plan", boom)
+    client = _app(monkeypatch)
+    response = client.post("/v1/entries/99/plan", json={"chip": "wildcard"})
+    assert response.status_code == 422
+
+
+def test_plan_conflict(monkeypatch) -> None:
+    from fpl_radar.api.runtime import PlanInProgress
+
+    runtime = _runtime()
+
+    def busy() -> None:
+        raise PlanInProgress("Plan already in progress")
+
+    monkeypatch.setattr(runtime, "begin_plan", busy)
+    client = _app(monkeypatch, runtime)
+    response = client.post("/v1/entries/99/plan", json={})
+    assert response.status_code == 409

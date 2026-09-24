@@ -275,7 +275,7 @@ def rank_horizon_xp(
     event_ids = horizon_event_ids(bootstrap, horizon)
     rows: list[tuple[dict[str, Any], PlayerXp]] = []
     for player in bootstrap.get("elements") or []:
-        xp = expected_points(int(player["id"]), event_ids, context)
+        xp = player_xp(int(player["id"]), event_ids, context)
         rows.append((player, xp))
     rows.sort(key=lambda row: row[1].horizon_sum, reverse=True)
     return take_top_per_position(

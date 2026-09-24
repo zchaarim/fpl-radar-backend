@@ -16,6 +16,10 @@ class SyncInProgress(RuntimeError):
     """A league sync is already running in this process."""
 
 
+class PlanInProgress(RuntimeError):
+    """A transfer plan solve is already running in this process."""
+
+
 def _default_client() -> FplClient:
     return FplClient(cache=default_cache())
 
@@ -35,6 +39,7 @@ class Runtime:
         self.last_sync_at: float | None = None
         self.last_sync: dict[str, Any] | None = None
         self._syncing = False
+        self._planning = False
         if context is not None and not context.xp_by_player:
             precompute_player_xp(context)
 
@@ -97,3 +102,13 @@ class Runtime:
         finally:
             with self._lock:
                 self._syncing = False
+
+    def begin_plan(self) -> None:
+        with self._lock:
+            if self._planning:
+                raise PlanInProgress("Plan already in progress")
+            self._planning = True
+
+    def end_plan(self) -> None:
+        with self._lock:
+            self._planning = False

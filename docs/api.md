@@ -57,6 +57,12 @@ Invoke-RestMethod http://127.0.0.1:8000/v1/status
 Invoke-RestMethod http://127.0.0.1:8000/openapi.json | Select-Object info, paths
 Invoke-RestMethod http://127.0.0.1:8000/v1/entries/2075419
 Invoke-RestMethod "http://127.0.0.1:8000/v1/entries/2075419/squad?horizon=5"
+Invoke-RestMethod "http://127.0.0.1:8000/v1/xp?horizon=5&limit=10"
+Invoke-RestMethod "http://127.0.0.1:8000/v1/xgi?limit=10&min_minutes=200"
+Invoke-RestMethod "http://127.0.0.1:8000/v1/entries/2075419/recommendations?horizon=5&limit=10"
+Invoke-RestMethod "http://127.0.0.1:8000/v1/entries/2075419/recommendations?horizon=5&remove_player=Palmer"
+$body = @{ horizon = 5; transfers = 3; chip = "none"; remove_player = @("King", "Barry") } | ConvertTo-Json
+Invoke-RestMethod -Method POST "http://127.0.0.1:8000/v1/entries/2075419/plan" -ContentType "application/json" -Body $body
 Invoke-RestMethod -Method POST http://127.0.0.1:8000/v1/sync -Headers @{ "X-Sync-Token" = "dev" }
 ```
 
@@ -79,19 +85,27 @@ python -m pytest -q
 | POST | `/v1/sync` | header `X-Sync-Token` = `FPL_SYNC_TOKEN` |
 | GET | `/v1/entries/{entry_id}` | none (public reconstruction) |
 | GET | `/v1/entries/{entry_id}/squad?horizon=5` | none |
+| GET | `/v1/xp?horizon=5&limit=10` | none |
+| GET | `/v1/xgi?limit=10&min_minutes=0` | none |
+| GET | `/v1/entries/{entry_id}/recommendations?horizon=5&limit=10&remove_player=` | none |
+| POST | `/v1/entries/{entry_id}/plan` | none |
 
 v1 squad is public picks only (estimated sale prices, default FTs). A later in-memory FPL session (option 3) can enrich “mine” without caching JWTs on disk.
+
+`GET /v1/xp` is top N **per position** by horizon xP (same as CLI `xp`). `GET /v1/xgi` is top N per position by xGI/90 (`min_minutes` drops thin samples). xGI returns **503** until features exist (`POST /v1/sync` or CLI `sync`).
+
+`GET /v1/entries/{id}/recommendations` is the CLI `recommend` list: legal 1-for-1s, top N per position, no hit cost. `remove_player` is one squad id or `web_name` (400 if not in the squad).
+
+`POST /v1/entries/{id}/plan` returns **one** plan (same as CLI `plan`), not a list. JSON body:
+
+```json
+{ "horizon": 5, "transfers": 3, "chip": "none", "ft": null, "remove_player": ["King"] }
+```
+
+`chip` is `none` | `wildcard` | `freehit` (free hit forces horizon 1). Response is the planned 15, moves (cash-positive first), XI vs bench, hits, and `delta_net`. **400** bad `remove_player` / K too small; **409** if another plan is already solving in this process; **422** if CP-SAT is infeasible. Restart the API process after pulling new routes or `/docs` and curl will 404.
 
 `POST /v1/sync` refreshes FPL + Understat, rebuilds the process-global `ModelContext`, and precomputes player×GW xP (next 15 GWs). A second sync while one is running returns **409**. The in-memory context is also rebuilt if it is older than 1 hour (bootstrap TTL). Set `FPL_SYNC_TOKEN` on Fly.
 
 Scheduled refresh: `FPL_SYNC_INTERVAL_SECONDS` (default 3600). `0` disables the background thread. `/v1/status` reports `context_age_seconds`, `context_stale`, `syncing`, and `xp_precomputed`.
 
-## Later: `plan`
-
-Do not run CP-SAT on a page-load GET. After listings + recommend:
-
-1. **Reuse xP from the warm context.** Today `plan` scores the pool by calling `expected_points` per player. At context refresh, fill a player×GW matrix once; the solver only adds integers.
-2. **Keep the 5s cap**, maybe shrink `PLAN_POOL_PER_POSITION` for the API default.
-3. **`POST /v1/entries/{id}/plans`** that either waits (timeout ~8s, one worker) or returns **202** + `job_id` with `GET /v1/jobs/{id}` if we see overlapping wildcard solves.
-
-Fly.io: web process + optional worker, not scale-to-zero, so OR-Tools and `ModelContext` stay warm.
+Fly.io: keep an always-on process so OR-Tools and `ModelContext` stay warm. Overlapping wildcard solves are 409 for now; a 202 job queue can wait until we need it.

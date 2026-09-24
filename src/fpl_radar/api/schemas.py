@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -78,3 +78,121 @@ class SquadResponse(EntrySummary):
     xp_source: str
     placeholder: bool
     players: list[SquadPlayerRow]
+
+
+class ListingPlayer(BaseModel):
+    element_id: int
+    web_name: str
+    team_id: int
+    team_short: str
+    element_type: int
+    now_cost: Money
+    flag: str = ""
+
+
+class XpPlayerRow(ListingPlayer):
+    horizon_xp: float
+    per_event: dict[int, float] = Field(default_factory=dict)
+
+
+class XpResponse(BaseModel):
+    horizon: int
+    event_ids: list[int]
+    limit: int
+    xp_source: str
+    placeholder: bool
+    players: list[XpPlayerRow]
+
+
+class XgiPlayerRow(ListingPlayer):
+    source: str
+    minutes: float
+    xg90: float
+    xa90: float
+    xgi90: float
+    raw_xgi: float
+    bps_avg: float
+    bonus_e: float
+
+
+class XgiResponse(BaseModel):
+    limit: int
+    min_minutes: float
+    matched: int
+    players_in_features: int
+    players: list[XgiPlayerRow]
+
+
+class RecommendationRow(BaseModel):
+    element_out: int
+    element_in: int
+    out_name: str
+    in_name: str
+    element_type: int
+    selling_price: Money
+    now_cost_in: Money
+    bank_after: Money
+    price_source: PriceSource
+    delta: float
+    incoming_horizon_xp: float
+    out_flag: str = ""
+    in_flag: str = ""
+
+
+class RecommendationsResponse(EntrySummary):
+    horizon: int
+    event_ids: list[int]
+    limit: int
+    remove_player_id: int | None = None
+    remove_player_name: str | None = None
+    xp_source: str
+    placeholder: bool
+    options: list[RecommendationRow]
+
+
+class PlanRequest(BaseModel):
+    horizon: int = Field(default=5, ge=1, le=15)
+    transfers: int = Field(default=3, ge=0, le=15)
+    chip: Literal["none", "wildcard", "freehit"] = "none"
+    ft: int | None = Field(default=None, ge=0, le=5)
+    remove_player: list[str] = Field(default_factory=list)
+
+
+class PlanMoveRow(BaseModel):
+    element_out: int
+    element_in: int
+    out_name: str
+    in_name: str
+    element_type: int
+    cash_delta: Money
+    out_flag: str = ""
+    in_flag: str = ""
+
+
+class PlanSquadPlayer(BaseModel):
+    element_id: int
+    web_name: str
+    team_id: int
+    team_short: str
+    element_type: int
+    role: Literal["XI", "bench"]
+    now_cost: Money
+    flag: str = ""
+
+
+class PlanResponse(EntrySummary):
+    chip: str | None = None
+    horizon: int
+    event_ids: list[int]
+    n_transfers: int
+    hits: int
+    hit_cost: float
+    current_xi: float
+    planned_xi: float
+    delta_xi: float
+    delta_net: float
+    bank_after: Money
+    xp_source: str
+    placeholder: bool
+    moves: list[PlanMoveRow]
+    squad: list[PlanSquadPlayer]
