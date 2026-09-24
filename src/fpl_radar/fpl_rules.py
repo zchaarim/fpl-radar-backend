@@ -234,6 +234,11 @@ def transfer_hit_cost(
     return hits, hits * float(points_per_hit)
 
 
+def tenths_to_pounds(tenths: int) -> float:
+    """FPL stores money in tenths of a million; display pounds to one decimal."""
+    return round(int(tenths) / 10.0, 1)
+
+
 T = TypeVar("T")
 
 
