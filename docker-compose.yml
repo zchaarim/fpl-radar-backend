@@ -1,0 +1,19 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      FPL_DATA_DIR: /app/data
+      FPL_SYNC_TOKEN: ${FPL_SYNC_TOKEN:?set FPL_SYNC_TOKEN in .env}
+      FPL_CORS_ORIGINS: ${FPL_CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      FPL_SYNC_INTERVAL_SECONDS: ${FPL_SYNC_INTERVAL_SECONDS:-3600}
+      PORT: "8000"
+    volumes:
+      - fpl-cache:/app/data/cache
+      - fpl-understat:/app/data/understat
+    restart: unless-stopped
+
+volumes:
+  fpl-cache:
+  fpl-understat:

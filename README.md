@@ -48,6 +48,7 @@ A website will call this backend over HTTP (`docs/api.md`). Do not put ranking l
 ## Docs
 
 - [HTTP API](docs/api.md)
+- [Deploy (free)](docs/deploy.md)
 - [FPL API catalog](docs/fpl-api.md)
 - [Understat scraper](docs/understat.md)
 - [Expected points model](docs/expected-points.md)
