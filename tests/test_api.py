@@ -7,8 +7,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from fpl_radar import config
-from fpl_radar.api.app import create_app
+from fpl_radar.api.app import create_app, resolve_sync_interval
 from fpl_radar.api.runtime import Runtime, SyncInProgress
+from fpl_radar.clients.fpl import FplApiError
 from fpl_radar.fpl_rules import tenths_to_pounds
 from fpl_radar.xp import model as xp_model
 from fpl_radar.xp.model import ModelContext, precompute_player_xp
@@ -376,3 +377,146 @@ def test_plan_conflict(monkeypatch) -> None:
     client = _app(monkeypatch, runtime)
     response = client.post("/v1/entries/99/plan", json={})
     assert response.status_code == 409
+
+
+def test_unknown_entry_is_404_without_upstream_body(monkeypatch) -> None:
+    client = _app(monkeypatch)
+    response = client.get("/v1/entries/1")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Entry not found"
+    assert "fantasy.premierleague" not in response.text
+
+
+def test_bank_override_on_entry(monkeypatch) -> None:
+    client = _app(monkeypatch)
+    response = client.get("/v1/entries/99?bank=2.5")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["bank"] == {"tenths": 25, "pounds": 2.5}
+    assert body["bank_source"] == "caller_override"
+
+
+def test_status_hides_cache_dir_without_sync_token(monkeypatch) -> None:
+    client = _app(monkeypatch)
+    public = client.get("/v1/status")
+    assert public.status_code == 200
+    assert public.json()["cache_dir"] == ""
+    authed = client.get("/v1/status", headers={"X-Sync-Token": "secret"})
+    assert authed.json()["cache_dir"]
+
+
+def test_invalid_sync_interval_falls_back(monkeypatch) -> None:
+    monkeypatch.setenv("FPL_SYNC_INTERVAL_SECONDS", "hourly")
+    assert resolve_sync_interval(None) == config.DEFAULT_SYNC_INTERVAL_SECONDS
+
+
+def test_get_context_rebuild_serves_stale_and_does_not_hold_lock() -> None:
+    boot = bootstrap_sample()
+    runtime = Runtime(
+        client_factory=lambda: client_from_routes(public_routes()),
+        context=ModelContext(bootstrap=boot),
+    )
+    runtime.context_built_at = time.time() - config.CONTEXT_TTL_SECONDS - 1
+    started = threading.Event()
+    unblock = threading.Event()
+
+    def slow_build(client=None) -> ModelContext:
+        started.set()
+        assert unblock.wait(timeout=5)
+        ctx = ModelContext(bootstrap=boot)
+        precompute_player_xp(ctx)
+        return ctx
+
+    runtime._build_context = slow_build  # type: ignore[method-assign]
+    worker = threading.Thread(target=runtime.get_context)
+    worker.start()
+    assert started.wait(timeout=2)
+    t0 = time.time()
+    assert runtime.syncing() is False
+    runtime.begin_plan()
+    runtime.end_plan()
+    assert time.time() - t0 < 0.5
+    assert runtime.get_context().bootstrap is boot
+    unblock.set()
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+
+
+def test_scheduled_sync_runs_immediately(monkeypatch) -> None:
+    runtime = _runtime()
+    hits = {"n": 0}
+
+    def fake_sync() -> dict:
+        hits["n"] += 1
+        return {
+            "fpl": {},
+            "understat": {},
+            "identity": {
+                "fpl_players": 0,
+                "understat_players": 0,
+                "matched": 0,
+                "unmatched_fpl": 0,
+                "unmatched_fpl_with_minutes": 0,
+                "unmatched_understat": 0,
+                "unmatched_understat_with_minutes": 0,
+            },
+        }
+
+    monkeypatch.setattr(runtime, "sync", fake_sync)
+    monkeypatch.setenv("FPL_SYNC_TOKEN", "secret")
+    with TestClient(create_app(runtime, sync_interval_seconds=3600)):
+        time.sleep(0.2)
+    assert hits["n"] >= 1
+
+
+def test_plan_duplicate_remove_player_is_ok(monkeypatch) -> None:
+    captured: dict = {}
+
+    def fake_make(*_args, **kwargs):
+        from fpl_radar.models import TransferPlan
+
+        captured["remove"] = kwargs.get("remove_player_ids")
+        return TransferPlan(squad_ids=list(range(1, 16)), starter_ids=list(range(1, 12)))
+
+    monkeypatch.setattr("fpl_radar.api.serialize.make_plan", fake_make)
+    client = _app(monkeypatch)
+    response = client.post(
+        "/v1/entries/99/plan",
+        json={"remove_player": ["MID3", "MID3"]},
+    )
+    assert response.status_code == 200
+    assert captured["remove"] == [10]
+
+
+def test_plan_fpl_error_is_502_not_422(monkeypatch) -> None:
+    runtime = _runtime()
+
+    def boom() -> ModelContext:
+        raise FplApiError("GET https://fantasy.premierleague.com/api/bootstrap-static/ failed: 500 oops", status_code=500)
+
+    monkeypatch.setattr(runtime, "get_context", boom)
+    client = _app(monkeypatch, runtime)
+    response = client.post("/v1/entries/99/plan", json={})
+    assert response.status_code == 502
+    assert response.json()["detail"] == "FPL API request failed"
+    assert "fantasy.premierleague" not in response.text
+    assert runtime._planning is False
+
+
+def test_plan_solver_through_api(monkeypatch) -> None:
+    import importlib
+
+    from tests.test_plan import _squad
+
+    app_mod = importlib.import_module("fpl_radar.api.app")
+    monkeypatch.setattr(app_mod, "load_manager_squad", lambda *_args, **_kwargs: _squad())
+    client = _app(monkeypatch)
+    response = client.post(
+        "/v1/entries/99/plan",
+        json={"horizon": 1, "transfers": 1, "chip": "none"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["squad"]) == 15
+    assert "plans" not in body
+    assert body["n_transfers"] == 1
