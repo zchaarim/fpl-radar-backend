@@ -14,7 +14,7 @@ from fpl_radar.fpl_rules import (
     take_top_per_position,
 )
 from fpl_radar.models import ManagerSquad, TransferOption
-from fpl_radar.xp.model import ModelContext, expected_points, horizon_event_ids
+from fpl_radar.xp.model import ModelContext, horizon_event_ids, player_xp
 
 
 def club_counts(team_ids: list[int]) -> Counter[int]:
@@ -51,7 +51,7 @@ def is_valid_replacement(
 def xp_map(player_ids: list[int], event_ids: list[int], context: ModelContext) -> dict[int, dict[int, float]]:
     result: dict[int, dict[int, float]] = {}
     for pid in player_ids:
-        xp = expected_points(pid, event_ids, context)
+        xp = player_xp(pid, event_ids, context)
         result[pid] = xp.per_event
     return result
 

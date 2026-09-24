@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from fpl_radar import config
 from fpl_radar.features import (
     FeatureSet,
     build_feature_set,
@@ -34,6 +35,8 @@ class ModelContext:
     player_match: dict[int, str] = field(default_factory=dict)
     team_match: dict[int, str] = field(default_factory=dict)
     features: FeatureSet | None = None
+    xp_by_player: dict[int, dict[int, float]] = field(default_factory=dict)
+    xp_event_ids: list[int] = field(default_factory=list)
 
 
 GOAL_KEYS = {
@@ -228,6 +231,40 @@ def horizon_event_ids(bootstrap: dict[str, Any], horizon: int) -> list[int]:
     return ids[:horizon]
 
 
+def precompute_player_xp(
+    context: ModelContext,
+    horizon: int | None = None,
+) -> ModelContext:
+    """Fill ``xp_by_player`` for the next ``horizon`` GWs (all roster players)."""
+    width = config.XP_PRECOMPUTE_HORIZON if horizon is None else max(int(horizon), 0)
+    event_ids = horizon_event_ids(context.bootstrap, width)
+    by_player: dict[int, dict[int, float]] = {}
+    for player in context.bootstrap.get("elements") or []:
+        pid = int(player["id"])
+        xp = expected_points(pid, event_ids, context)
+        by_player[pid] = {int(eid): float(pts) for eid, pts in xp.per_event.items()}
+    context.xp_by_player = by_player
+    context.xp_event_ids = list(event_ids)
+    return context
+
+
+def player_xp(player_id: int, event_ids: list[int], context: ModelContext) -> PlayerXp:
+    """Use the precomputed matrix when every requested GW is present."""
+    wanted = [int(eid) for eid in event_ids]
+    cached = context.xp_by_player.get(int(player_id))
+    if cached is not None and all(eid in cached for eid in wanted):
+        per_event = {eid: float(cached[eid]) for eid in wanted}
+        return PlayerXp(
+            player_id=int(player_id),
+            event_ids=wanted,
+            per_event=per_event,
+            horizon_sum=sum(per_event.values()),
+            breakdown={"source": "precomputed"},
+            placeholder=context.features is None,
+        )
+    return expected_points(player_id, event_ids, context)
+
+
 def rank_horizon_xp(
     context: ModelContext,
     horizon: int = 1,
@@ -238,7 +275,7 @@ def rank_horizon_xp(
     event_ids = horizon_event_ids(bootstrap, horizon)
     rows: list[tuple[dict[str, Any], PlayerXp]] = []
     for player in bootstrap.get("elements") or []:
-        xp = expected_points(int(player["id"]), event_ids, context)
+        xp = player_xp(int(player["id"]), event_ids, context)
         rows.append((player, xp))
     rows.sort(key=lambda row: row[1].horizon_sum, reverse=True)
     return take_top_per_position(
