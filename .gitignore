@@ -2,6 +2,11 @@
 data/cache/
 data/understat/
 
+# Shared Cursor rules are tracked; everything else under .cursor/ is local.
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+
 # Created by .ignore support plugin (hsz.mobi)
 ### Diff template
 *.patch

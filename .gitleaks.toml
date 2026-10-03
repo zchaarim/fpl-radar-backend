@@ -1,0 +1,7 @@
+title = "fpl-radar-backend"
+
+[allowlist]
+description = "Documented placeholders, not live credentials"
+regexes = [
+  '''eyJ\.\.\.''',
+]

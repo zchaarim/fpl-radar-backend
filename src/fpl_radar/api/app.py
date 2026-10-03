@@ -262,7 +262,7 @@ def main() -> None:
 
     uvicorn.run(
         "fpl_radar.api.app:app",
-        host="0.0.0.0",
+        host="0.0.0.0",  # nosec B104  # Docker/VM must listen on all interfaces; firewall/tunnel restricts access
         port=int(os.environ.get("PORT", "8000")),
     )
 

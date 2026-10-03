@@ -285,7 +285,6 @@ def cmd_xgi(args: argparse.Namespace) -> int:
     )
     teams = {int(t["id"]): t.get("short_name") for t in ctx.bootstrap.get("teams") or []}
     matched = len(features.players) - len(features.unmatched_players)
-    mins_note = f"  min minutes {args.min_minutes:g}" if args.min_minutes else ""
     print(
         f"Top {args.limit} players per position by xGI/90  "
         f"min minutes {args.min_minutes:g}  "

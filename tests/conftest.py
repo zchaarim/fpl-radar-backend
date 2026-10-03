@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fpl_radar.clients.fpl import FplClient
 from tests.fixtures import bootstrap_sample
+
+from fpl_radar.clients.fpl import FplClient
 
 
 class FakeResponse:

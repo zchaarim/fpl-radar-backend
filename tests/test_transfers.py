@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from tests.fixtures import bootstrap_sample
+
 from fpl_radar.models import ManagerSquad, PriceSource, SquadPlayer
 from fpl_radar.transfers.rank import is_valid_replacement, rank_replacements
 from fpl_radar.xp.model import ModelContext, expected_points
-from tests.fixtures import bootstrap_sample
 
 
 def _squad() -> ManagerSquad:

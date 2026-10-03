@@ -19,8 +19,8 @@ DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (compatible; fpl-radar-backend/0.1; +https://github.com/zchaarim/fpl-radar-backend)"
 )
 SESSION_COOKIE_ENV = "FPL_SESSION_COOKIE"
-API_TOKEN_ENV = "FPL_API_TOKEN"
-SYNC_TOKEN_ENV = "FPL_SYNC_TOKEN"
+API_TOKEN_ENV = "FPL_API_TOKEN"  # nosec B105  # env var name, not a secret
+SYNC_TOKEN_ENV = "FPL_SYNC_TOKEN"  # nosec B105  # env var name, not a secret
 CORS_ORIGINS_ENV = "FPL_CORS_ORIGINS"
 DEFAULT_CORS_ORIGINS = (
     "http://localhost:3000",

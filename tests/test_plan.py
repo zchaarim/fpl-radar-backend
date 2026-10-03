@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 
 import pytest
+from tests.fixtures import bootstrap_sample
 
 from fpl_radar.fpl_rules import (
     ELEMENT_TYPE_DEF,
@@ -16,7 +17,6 @@ from fpl_radar.fpl_rules import (
 from fpl_radar.models import ManagerSquad, PriceSource, SquadPlayer
 from fpl_radar.transfers.plan import make_plan, plan_chip, plan_transfers
 from fpl_radar.transfers.rank import rank_replacements
-from tests.fixtures import bootstrap_sample
 
 
 def _squad(bank: int = 50) -> ManagerSquad:

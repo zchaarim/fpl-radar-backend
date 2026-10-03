@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-from fpl_radar.clients.auth import FplAuthClient
-from fpl_radar.models import PriceSource
-from fpl_radar.squad import load_manager_squad, purchase_ledger, remaining_free_transfers, resolve_owned_players
 from tests.conftest import FakeSession, client_from_routes, public_routes
 from tests.fixtures import bootstrap_sample
+
+from fpl_radar.clients.auth import FplAuthClient
+from fpl_radar.models import PriceSource
+from fpl_radar.squad import (
+    load_manager_squad,
+    purchase_ledger,
+    remaining_free_transfers,
+    resolve_owned_players,
+)
 
 
 def test_public_squad_bank_and_estimated_prices() -> None:

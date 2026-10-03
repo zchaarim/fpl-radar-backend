@@ -1,6 +1,6 @@
 # FPL Radar backend
 
-Ranking And Differential Analysis of Replacements. This repo is **`fpl-radar-backend`**: the Python service behind FPL Radar. Today that is a CLI. The same library (`fpl_radar`) exposes an HTTP API (`python -m fpl_radar.api`) for a separate front-end site — keep ingest, xP, squad, and transfer ranking free of CLI-only assumptions.
+Ranking And Differential Analysis of Replacements. This repo is **`fpl-radar-backend`**: the Python service behind FPL Radar. The library (`fpl_radar`) contains this backend as a CLI, and also exposes an HTTP API (`python -m fpl_radar.api`) for a separate front-end site — keep ingest, xP, squad, and transfer ranking free of CLI-only assumptions.
 
 Python backend for Fantasy Premier League: ingest public FPL + Understat xGI, reconstruct a manager’s squad, and rank 1-for-1 transfers. xP uses minutes, opponent-adjusted xG/xA, Poisson CS/GC, shrunk DefCon, bonus, GK saves, and yellow/red rates.
 
@@ -48,6 +48,8 @@ A website will call this backend over HTTP (`docs/api.md`). Do not put ranking l
 ## Docs
 
 - [HTTP API](docs/api.md)
+- [Deploy (free)](docs/deploy.md)
+- [CI / CD](docs/cicd.md)
 - [FPL API catalog](docs/fpl-api.md)
 - [Understat scraper](docs/understat.md)
 - [Expected points model](docs/expected-points.md)

@@ -5,6 +5,8 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.conftest import client_from_routes, public_routes
+from tests.fixtures import bootstrap_sample
 
 from fpl_radar import config
 from fpl_radar.api.app import create_app, resolve_sync_interval
@@ -13,8 +15,6 @@ from fpl_radar.clients.fpl import FplApiError
 from fpl_radar.fpl_rules import tenths_to_pounds
 from fpl_radar.xp import model as xp_model
 from fpl_radar.xp.model import ModelContext, precompute_player_xp
-from tests.conftest import client_from_routes, public_routes
-from tests.fixtures import bootstrap_sample
 
 
 def _runtime() -> Runtime:
@@ -257,8 +257,9 @@ def test_xgi_requires_features(monkeypatch) -> None:
 def test_xgi_listing(monkeypatch) -> None:
     from collections import Counter
 
-    from fpl_radar.features import build_feature_set
     from tests.test_features import _us_league
+
+    from fpl_radar.features import build_feature_set
 
     boot = bootstrap_sample()
     runtime = Runtime(

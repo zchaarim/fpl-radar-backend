@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from tests.fixtures import bootstrap_sample
+from tests.test_features import _us_league
+
 from fpl_radar.features import (
     build_feature_set,
     expected_bonus_from_bps,
@@ -7,8 +10,6 @@ from fpl_radar.features import (
     shrink_bonus_e,
 )
 from fpl_radar.xp.model import ModelContext, expected_points
-from tests.fixtures import bootstrap_sample
-from tests.test_features import _us_league
 
 
 def test_higher_bps_maps_to_more_bonus() -> None:

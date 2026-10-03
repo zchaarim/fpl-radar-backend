@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from tests.fixtures import bootstrap_sample
+from tests.test_features import _us_league
+
 from fpl_radar.features import (
+    build_feature_set,
     expected_goals_conceded_points,
     p_play_sixty,
     poisson_clean_sheet,
 )
 from fpl_radar.xp.model import ModelContext, expected_points
-from tests.fixtures import bootstrap_sample
-from tests.test_features import _us_league
-from fpl_radar.features import build_feature_set
 
 
 def test_poisson_cs_and_gc() -> None:

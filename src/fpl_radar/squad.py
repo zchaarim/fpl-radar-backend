@@ -3,9 +3,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fpl_radar.clients.auth import AuthError, FplAuthClient
+from fpl_radar.clients.auth import FplAuthClient
 from fpl_radar.clients.fpl import FplApiError, FplClient
-from fpl_radar.fpl_rules import DEFAULT_FREE_TRANSFERS, estimated_selling_price, sell_on_fee, start_price
+from fpl_radar.fpl_rules import (
+    DEFAULT_FREE_TRANSFERS,
+    estimated_selling_price,
+    sell_on_fee,
+    start_price,
+)
 from fpl_radar.models import ManagerSquad, PriceSource, SquadPlayer
 
 logger = logging.getLogger(__name__)

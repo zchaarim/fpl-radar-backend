@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from tests.fixtures import bootstrap_sample
+from tests.test_features import _us_league
+
 from fpl_radar.features import (
     build_feature_set,
     p_card_in_minutes,
@@ -7,8 +10,6 @@ from fpl_radar.features import (
 )
 from fpl_radar.fpl_rules import RED_PRIOR_GAMES, YELLOW_PRIOR_GAMES
 from fpl_radar.xp.model import ModelContext, expected_points
-from tests.fixtures import bootstrap_sample
-from tests.test_features import _us_league
 
 
 def test_one_yellow_is_not_every_week() -> None:

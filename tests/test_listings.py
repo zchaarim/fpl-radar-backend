@@ -3,6 +3,9 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import replace
 
+from tests.fixtures import bootstrap_sample
+from tests.test_features import _us_league
+
 from fpl_radar.features import build_feature_set, rank_xgi_rates
 from fpl_radar.fpl_rules import (
     ELEMENT_TYPE_DEF,
@@ -12,8 +15,6 @@ from fpl_radar.fpl_rules import (
     take_top_per_position,
 )
 from fpl_radar.xp.model import ModelContext, rank_horizon_xp
-from tests.fixtures import bootstrap_sample
-from tests.test_features import _us_league
 
 
 def test_take_top_per_position_keeps_limit_each() -> None:
