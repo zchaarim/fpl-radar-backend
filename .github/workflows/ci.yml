@@ -72,10 +72,29 @@ jobs:
 
   image:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Build image (no registry push)
-        run: docker build -t fpl-radar-ci:${{ github.sha }} .
+      - name: Image names
+        id: meta
+        run: |
+          set -euo pipefail
+          repo="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          version="$(python3 -c "import pathlib,re; t=pathlib.Path('pyproject.toml').read_text(); print(re.search(r'^version = \"([^\"]+)\"', t, re.M).group(1))")"
+          sha="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          echo "image=ghcr.io/${repo}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
+      - name: Build image
+        run: |
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=${{ steps.meta.outputs.version }}" \
+            -t "fpl-radar-ci:${GITHUB_SHA}" \
+            .
       - name: Trivy image
         uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2 # 0.28.0
         with:
@@ -84,3 +103,41 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
+      - name: Log in to GHCR
+        if: |
+          (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'))
+          || (
+            github.event_name == 'pull_request'
+            && env.PUSH_DEV_IMAGE_ON_PR == 'true'
+            && github.event.pull_request.head.repo.full_name == github.repository
+          )
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push to GHCR
+        if: |
+          (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'))
+          || (
+            github.event_name == 'pull_request'
+            && env.PUSH_DEV_IMAGE_ON_PR == 'true'
+            && github.event.pull_request.head.repo.full_name == github.repository
+          )
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHORT_SHA: ${{ steps.meta.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            channel=rel
+          else
+            channel=dev
+          fi
+          immutable="${VERSION}-${channel}-${SHORT_SHA}"
+          docker tag "fpl-radar-ci:${GITHUB_SHA}" "${IMAGE}:${immutable}"
+          docker tag "fpl-radar-ci:${GITHUB_SHA}" "${IMAGE}:${channel}"
+          docker push "${IMAGE}:${immutable}"
+          docker push "${IMAGE}:${channel}"
+          echo "Pushed ${IMAGE}:${immutable} and ${IMAGE}:${channel}"

@@ -1,10 +1,10 @@
 # CI / CD
 
-This document is the contract for GitHub Actions. Local Docker and the Oracle VM still live in [deploy.md](deploy.md). Image **publish** and **VM apply** are not fully wired yet; tag rules and security gates below are what we will implement against.
+This document is the contract for GitHub Actions. Local Docker and the Oracle VM still live in [deploy.md](deploy.md). **CI publishes to GHCR** on the rules below. Applying an image on the Oracle VM is **not** implemented yet.
 
-Package (lowercase, required by GHCR): `ghcr.io/zchaarim/fpl-radar-backend`
+Package (lowercase, required by GHCR): `ghcr.io/zchaarim/fpl-radar-backend` — `github.repository` in lower case after the GitHub rename. CI tags that name; it does not hard-code a slug in YAML.
 
-Version in tags comes from `pyproject.toml` (today `0.1.0`). Channel is `rel` (production-capable, from `main`) or `dev` (PR preview). Commit is the short SHA.
+Version in tags comes from `pyproject.toml` (today `0.1.0`). Channel is `rel` (production-capable, from `main`) or `dev` (PR preview when `PUSH_DEV_IMAGE_ON_PR` is true). Commit is the short SHA.
 
 ```text
 ghcr.io/zchaarim/fpl-radar-backend:0.1.0-rel-a1b2c3d
@@ -36,7 +36,7 @@ Otherwise an outsider could push images into our package namespace or steal a wr
 
 Do not use `pull_request_target` to “fix” fork builds. That checkout model can run untrusted code with base-repo secrets.
 
-GHCR publish (when it is added) needs `permissions: packages: write` **only** on the job that pushes, and only after the fork check.
+GHCR publish is the `image` job in `ci.yml`. It uses `permissions: packages: write` only on that job, logs in with `GITHUB_TOKEN`, and pushes only after Trivy and only when the fork check passes.
 
 ## CD (apply an image to a VM)
 
