@@ -4,7 +4,7 @@ This API needs a **warm process** (in-memory model + OR-Tools). Sleeping PaaS fr
 
 **Recommended $0 setup**
 
-1. **GitHub Actions** — pytest plus Gitleaks, pip-audit, Bandit, Trivy, and CodeQL (`.github/workflows/`). This is CI only; it does not host the API. Dependabot is in `.github/dependabot.yml`.
+1. **GitHub Actions** — pytest, Gitleaks, pip-audit, Bandit, Ruff, Hadolint, Trivy (filesystem + image), CodeQL. Dependabot: `.github/dependabot.yml`. This does not host the API. 
 2. **Oracle Cloud Always Free Ampere ARM VM** — always-on Linux. Run the Docker image there with a disk volume for `FPL_DATA_DIR`.
 3. **Front-end later** — Cloudflare Pages or GitHub Pages (static, free). Set `FPL_CORS_ORIGINS` to that HTTPS origin.
 
