@@ -1,0 +1,62 @@
+name: Deploy
+
+# Manual apply of a GHCR tag. Does not SSH/pull yet; enforces channel vs environment.
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag only, e.g. 0.1.0-rel-a1b2c3d or rel"
+        required: true
+        type: string
+      development:
+        description: "Deploy to the development environment"
+        required: true
+        default: true
+        type: boolean
+      production:
+        description: "Deploy to production (rel channel only)"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require an environment
+        if: ${{ inputs.development != true && inputs.production != true }}
+        run: |
+          echo "Select development and/or production."
+          exit 1
+      - name: Refuse non-rel tags for production
+        if: ${{ inputs.production == true }}
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          tag="${IMAGE_TAG##*:}"
+          tag="${tag##*/}"
+          if echo "$tag" | grep -Eq '(^|.*-)dev(-|$)'; then
+            echo "Refusing production deploy of a dev-channel tag: $tag"
+            exit 1
+          fi
+          if ! echo "$tag" | grep -Eq '(^|.*-)rel(-|$)'; then
+            echo "Production only accepts rel channel tags (rel or version-rel-sha). Got: $tag"
+            exit 1
+          fi
+      - name: Record requested deploy
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          DEV: ${{ inputs.development }}
+          PROD: ${{ inputs.production }}
+        run: |
+          echo "Would deploy ghcr.io/zchaarim/fpl-radar-backend:${IMAGE_TAG##*:}"
+          echo "development=$DEV production=$PROD"
+          echo "Oracle apply is not implemented yet (see docs/cicd.md)."

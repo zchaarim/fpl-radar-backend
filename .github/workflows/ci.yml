@@ -11,6 +11,10 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Same-repo PRs only. Forks must never push even if this is true (see docs/cicd.md).
+env:
+  PUSH_DEV_IMAGE_ON_PR: "false"
+
 permissions:
   contents: read
 
