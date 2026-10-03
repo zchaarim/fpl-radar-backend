@@ -13,7 +13,7 @@ concurrency:
 
 # Same-repo PRs only. Forks must never push even if this is true (see docs/cicd.md).
 env:
-  PUSH_DEV_IMAGE_ON_PR: "true"
+  PUSH_DEV_IMAGE_ON_PR: "false"
 
 permissions:
   contents: read
