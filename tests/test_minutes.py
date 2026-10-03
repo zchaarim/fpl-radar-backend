@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from tests.fixtures import bootstrap_sample
+from tests.test_features import _us_league
+
 from fpl_radar.features import (
     attach_minutes,
     availability_note,
@@ -9,8 +12,6 @@ from fpl_radar.features import (
     project_minutes,
 )
 from fpl_radar.fpl_rules import scoring_table
-from tests.fixtures import bootstrap_sample
-from tests.test_features import _us_league
 
 
 def test_minutes_points_threshold_not_ramp() -> None:

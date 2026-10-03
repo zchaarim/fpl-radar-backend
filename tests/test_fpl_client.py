@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from fpl_radar.clients.fpl import FplApiError
 from tests.conftest import FakeResponse, client_from_routes, public_routes
+
+from fpl_radar.clients.fpl import FplApiError
 
 
 def test_bootstrap_and_fixtures() -> None:

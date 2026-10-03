@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.conftest import FakeResponse, FakeSession
+
 from fpl_radar.clients.auth import (
     AuthError,
     FplAuthClient,
@@ -7,7 +9,6 @@ from fpl_radar.clients.auth import (
     cookie_header,
     load_api_token,
 )
-from tests.conftest import FakeResponse, FakeSession
 
 
 def test_cookie_header_strips_prefix() -> None:

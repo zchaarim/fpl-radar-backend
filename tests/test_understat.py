@@ -1,7 +1,12 @@
 from __future__ import annotations
 
-from fpl_radar.clients.understat import UnderstatClient, decode_understat_embedded, extract_embedded_var
 from tests.conftest import FakeResponse, FakeSession
+
+from fpl_radar.clients.understat import (
+    UnderstatClient,
+    decode_understat_embedded,
+    extract_embedded_var,
+)
 
 
 def test_decode_hex_json() -> None:

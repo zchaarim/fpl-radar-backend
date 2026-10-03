@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.fixtures import bootstrap_sample
+
 from fpl_radar.features import (
     build_feature_set,
     build_team_strengths,
@@ -9,7 +11,6 @@ from fpl_radar.features import (
     team_strengths,
 )
 from fpl_radar.xp.model import ModelContext, expected_points
-from tests.fixtures import bootstrap_sample
 
 
 def _us_league() -> dict:
