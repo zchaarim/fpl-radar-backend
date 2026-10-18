@@ -6,6 +6,7 @@ from fpl_radar import config
 from fpl_radar.clients.fpl import FplClient
 from fpl_radar.clients.understat import UnderstatClient
 from fpl_radar.features import build_feature_set
+from fpl_radar.fpl_rules import ShrinkageConfig
 from fpl_radar.identity.match import load_overrides, match_players, match_teams
 from fpl_radar.ingest.store import JsonCache
 from fpl_radar.xp.model import ModelContext
@@ -86,7 +87,10 @@ def load_understat_prior(
         return {}
 
 
-def load_model_context(fpl_client: FplClient | None = None) -> ModelContext:
+def load_model_context(
+    fpl_client: FplClient | None = None,
+    shrinkage: ShrinkageConfig | None = None,
+) -> ModelContext:
     client = fpl_client or FplClient(cache=default_cache())
     bootstrap = client.bootstrap_static()
     fixtures = client.fixtures()
@@ -107,6 +111,7 @@ def load_model_context(fpl_client: FplClient | None = None) -> ModelContext:
         understat,
         live_matches=live,
         understat_prior=understat_prior,
+        shrinkage=shrinkage,
     )
     return ModelContext(
         bootstrap=bootstrap,

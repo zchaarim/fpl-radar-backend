@@ -11,8 +11,6 @@ from fpl_radar.fpl_rules import (
     ELEMENT_TYPE_FWD,
     ELEMENT_TYPE_GKP,
     ELEMENT_TYPE_MID,
-    FINISHING_PRIOR_GAMES,
-    HOME_SPLIT_PRIOR_GAMES,
     MIN_BONUS_CURVE_BUCKETS,
     MIN_PRIOR_MINUTES,
     MINUTES_CAMEO_WHEN_PLAYING,
@@ -28,13 +26,11 @@ from fpl_radar.fpl_rules import (
     P_PLAYED_UNUSED,
     POSITION_XGI_PRIOR_90S,
     RED90_DEFAULT,
-    RED_PRIOR_GAMES,
     SAVES_PRIOR_GAMES,
-    TEAM_STRENGTH_PRIOR_GAMES,
     XGI90_DEFAULT,
-    XGI_PRIOR_90S,
     YELLOW90_DEFAULT,
     YELLOW_PRIOR_GAMES,
+    ShrinkageConfig,
     defcon_threshold,
     scoring_table,
     take_top_per_position,
@@ -134,6 +130,7 @@ class FeatureSet:
     league_ha_home: float = 1.0
     league_ha_away: float = 1.0
     unmatched_players: list[int] = field(default_factory=list)
+    shrinkage: ShrinkageConfig = field(default_factory=ShrinkageConfig)
 
 
 def rank_xgi_rates(
@@ -256,6 +253,7 @@ def team_strengths(understat_teams: dict[str, Any]) -> dict[str, TeamStrength]:
 def build_team_strengths(
     understat_teams: dict[str, Any],
     priors: dict[str, dict[str, float]] | None = None,
+    shrinkage: ShrinkageConfig | None = None,
 ) -> tuple[dict[str, TeamStrength], float, float, float]:
     """Venue-neutral attack/defence plus per-club home/away residuals.
 
@@ -284,6 +282,7 @@ def build_team_strengths(
     avg_away_xga = (
         sum(v["axga"] for v in away_rows) / len(away_rows) if away_rows else avg_xga
     )
+    sk = shrinkage or ShrinkageConfig()
     league_xg = max(avg_xg, 0.05)
     league_xga = max(avg_xga, 0.05)
     ha_home = max(avg_home_xg / league_xg, 0.5)
@@ -299,25 +298,25 @@ def build_team_strengths(
             v["xg"] / league_xg,
             float(prior.get("att") or 1.0),
             n,
-            TEAM_STRENGTH_PRIOR_GAMES,
+            sk.team_k,
         )
         dfn_xg = shrink_mean(
             v["xga"] / league_xga,
             float(prior.get("dfn") or 1.0),
             n,
-            TEAM_STRENGTH_PRIOR_GAMES,
+            sk.team_k,
         )
         finish_att = shrink_mean(
             _finishing_ratio(v["gf"], v["xg"]),
             float(prior.get("finish_att") or 1.0),
             n,
-            FINISHING_PRIOR_GAMES,
+            sk.finishing_k,
         )
         finish_def = shrink_mean(
             _finishing_ratio(v["ga"], v["xga"]),
             float(prior.get("finish_def") or 1.0),
             n,
-            FINISHING_PRIOR_GAMES,
+            sk.finishing_k,
         )
         att = max(att_xg * finish_att, 0.25)
         dfn = max(dfn_xg * finish_def, 0.25)
@@ -328,13 +327,13 @@ def build_team_strengths(
             raw_home,
             float(prior.get("venue_home") or ha_home),
             v["hn"],
-            HOME_SPLIT_PRIOR_GAMES,
+            sk.home_split_k,
         )
         venue_away = shrink_mean(
             raw_away,
             float(prior.get("venue_away") or ha_away),
             v["an"],
-            HOME_SPLIT_PRIOR_GAMES,
+            sk.home_split_k,
         )
         result[us_id] = TeamStrength(
             us_id=us_id,
@@ -517,6 +516,7 @@ def position_minutes(
     fpl_players: list[dict[str, Any]],
     rates_by_id: dict[int, PlayerRates],
     element_type: int,
+    minutes_k: float = MINUTES_PRIOR_GAMES,
 ) -> dict[str, dict[str, float]]:
     """Priors for P(play) by selection cluster and mins/P(60+) by duration role."""
     starter_m = MINUTES_WHEN_PLAYING.get(element_type, 75.0)
@@ -549,18 +549,18 @@ def position_minutes(
                 _mean_or(play[cluster], play_priors[cluster]),
                 play_priors[cluster],
                 float(len(play[cluster])),
-                MINUTES_PRIOR_GAMES,
+                minutes_k,
             )
             for cluster in play_priors
         },
         "mins": {
-            "starter": _shrink_player_cluster(mins["starter"], starter_m),
-            "cameo": _shrink_player_cluster(mins["cameo"], cameo_m),
+            "starter": _shrink_player_cluster(mins["starter"], starter_m, minutes_k),
+            "cameo": _shrink_player_cluster(mins["cameo"], cameo_m, minutes_k),
             "unused": starter_m,
         },
         "p60": {
-            "starter": _shrink_player_cluster(p60["starter"], starter_p60),
-            "cameo": _shrink_player_cluster(p60["cameo"], cameo_p60),
+            "starter": _shrink_player_cluster(p60["starter"], starter_p60, minutes_k),
+            "cameo": _shrink_player_cluster(p60["cameo"], cameo_p60, minutes_k),
             "unused": starter_p60,
         },
     }
@@ -571,6 +571,7 @@ def attach_minutes(
     fpl_players: list[dict[str, Any]],
     live_matches: dict[int, list[dict[str, float]]] | None,
     finished_gws: int = 0,
+    shrinkage: ShrinkageConfig | None = None,
 ) -> dict[int, PlayerRates]:
     """Empirical P(play) × minutes|play.
 
@@ -580,6 +581,7 @@ def attach_minutes(
     cluster prior counted in *players* not pooled appearances.
     """
     live_matches = live_matches or {}
+    sk = shrinkage or ShrinkageConfig()
     seeded: dict[int, PlayerRates] = {}
     for player in fpl_players:
         eid = int(player["id"])
@@ -624,7 +626,7 @@ def attach_minutes(
             minutes_source=source,
         )
     pos = {
-        etype: position_minutes(fpl_players, seeded, etype)
+        etype: position_minutes(fpl_players, seeded, etype, sk.minutes_k)
         for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
     }
     updated: dict[int, PlayerRates] = {}
@@ -644,17 +646,17 @@ def attach_minutes(
             rates.mins_when_played,
             priors["mins"][duration],
             n_apps,
-            MINUTES_PRIOR_GAMES,
+            sk.minutes_k,
         )
         p60_w = shrink_mean(
             rates.p60_when_played,
             priors["p60"][duration],
             n_apps,
-            MINUTES_PRIOR_GAMES,
+            sk.minutes_k,
         )
         cluster = _play_cluster(rates.p_played)
         play_prior = priors["p_played"][cluster]
-        played = shrink_mean(rates.p_played, play_prior, n, MINUTES_PRIOR_GAMES)
+        played = shrink_mean(rates.p_played, play_prior, n, sk.minutes_k)
         exp = played * mins_w
         p60 = min(played, played * p60_w)
         updated[eid] = replace(
@@ -738,6 +740,7 @@ def position_xgi90(
     rates_by_id: dict[int, PlayerRates],
     element_type: int,
     hyperprior: tuple[float, float] | None = None,
+    position_xgi_k: float = POSITION_XGI_PRIOR_90S,
 ) -> tuple[float, float]:
     default_xg, default_xa = hyperprior or XGI90_DEFAULT.get(element_type, (0.2, 0.15))
     weighted_xg = 0.0
@@ -755,8 +758,8 @@ def position_xgi90(
         weighted_xg += n90 * raw_xg
         weighted_xa += n90 * raw_xa
         n90_sum += n90
-    xg90 = shrink_mean(weighted_xg / n90_sum if n90_sum else default_xg, default_xg, n90_sum, POSITION_XGI_PRIOR_90S)
-    xa90 = shrink_mean(weighted_xa / n90_sum if n90_sum else default_xa, default_xa, n90_sum, POSITION_XGI_PRIOR_90S)
+    xg90 = shrink_mean(weighted_xg / n90_sum if n90_sum else default_xg, default_xg, n90_sum, position_xgi_k)
+    xa90 = shrink_mean(weighted_xa / n90_sum if n90_sum else default_xa, default_xa, n90_sum, position_xgi_k)
     return xg90, xa90
 
 
@@ -765,10 +768,14 @@ def attach_xgi_shrink(
     fpl_players: list[dict[str, Any]],
     season_priors: dict[int, tuple[float, float]] | None = None,
     role_priors: dict[int, tuple[float, float]] | None = None,
+    shrinkage: ShrinkageConfig | None = None,
 ) -> dict[int, PlayerRates]:
     role_priors = role_priors or {}
+    sk = shrinkage or ShrinkageConfig()
     pos = {
-        etype: position_xgi90(fpl_players, rates_by_id, etype, role_priors.get(etype))
+        etype: position_xgi90(
+            fpl_players, rates_by_id, etype, role_priors.get(etype), sk.position_xgi_k
+        )
         for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
     }
     season_priors = season_priors or {}
@@ -786,8 +793,8 @@ def attach_xgi_shrink(
         if n90 <= 0:
             xg90, xa90 = 0.0, 0.0
         else:
-            xg90 = shrink_mean(raw_xg, pxg, n90, XGI_PRIOR_90S)
-            xa90 = shrink_mean(raw_xa, pxa, n90, XGI_PRIOR_90S)
+            xg90 = shrink_mean(raw_xg, pxg, n90, sk.xgi_k)
+            xa90 = shrink_mean(raw_xa, pxa, n90, sk.xgi_k)
         tag = "prior" if used_prior else "shrunk"
         source = rates.source.split("+")[0]
         source = f"{source}+{tag}"
@@ -812,7 +819,9 @@ def build_feature_set(
     live_defcon: dict[int, list[tuple[int, float]]] | None = None,
     live_matches: dict[int, list[dict[str, float]]] | None = None,
     understat_prior: dict[str, Any] | None = None,
+    shrinkage: ShrinkageConfig | None = None,
 ) -> FeatureSet:
+    sk = shrinkage or ShrinkageConfig()
     fpl_teams = bootstrap.get("teams") or []
     fpl_players = bootstrap.get("elements") or []
     overrides = load_overrides()
@@ -824,7 +833,7 @@ def build_feature_set(
     )
     team_priors = season_team_priors((understat_prior or {}).get("teams") or {})
     strengths, league_xg, ha_home, ha_away = (
-        build_team_strengths(us_teams, priors=team_priors) if us_teams else ({}, 1.4, 1.0, 1.0)
+        build_team_strengths(us_teams, priors=team_priors, shrinkage=sk) if us_teams else ({}, 1.4, 1.0, 1.0)
     )
     us_rates = player_understat_rates(us_players)
     prior_us_players = (understat_prior or {}).get("players") or []
@@ -864,24 +873,25 @@ def build_feature_set(
         season_priors[int(eid)] = (prev.xg90_raw or prev.xg90, prev.xa90_raw or prev.xa90)
     role_xgi = season_role_xgi90(fpl_players, prior_player_map, prior_rates)
     role_cards = season_role_card90(fpl_players, prior_player_map, prior_us_players)
-    players = attach_xgi_shrink(players, fpl_players, season_priors, role_xgi)
+    players = attach_xgi_shrink(players, fpl_players, season_priors, role_xgi, sk)
     finished_gws = sum(1 for event in (bootstrap.get("events") or []) if event.get("finished"))
-    players = attach_minutes(players, fpl_players, live_matches, finished_gws)
+    players = attach_minutes(players, fpl_players, live_matches, finished_gws, sk)
 
     if live_matches and not live_defcon:
         live_defcon = {
             pid: [(int(row["minutes"]), row.get("defensive_contribution") or 0.0) for row in rows]
             for pid, rows in live_matches.items()
         }
-    players = attach_defcon(players, fpl_players, live_defcon)
-    players = attach_bonus(players, fpl_players, live_matches)
+    players = attach_defcon(players, fpl_players, live_defcon, sk)
+    players = attach_bonus(players, fpl_players, live_matches, sk)
     players = attach_saves(
         players,
         fpl_players,
         live_matches,
         scoring_table(bootstrap.get("game_settings")),
+        sk,
     )
-    players = attach_cards(players, fpl_players, live_matches, role_cards)
+    players = attach_cards(players, fpl_players, live_matches, role_cards, sk)
     return FeatureSet(
         teams=teams,
         players=players,
@@ -889,6 +899,7 @@ def build_feature_set(
         league_ha_home=ha_home,
         league_ha_away=ha_away,
         unmatched_players=unmatched,
+        shrinkage=sk,
     )
 
 
@@ -1019,8 +1030,10 @@ def attach_defcon(
     rates_by_id: dict[int, PlayerRates],
     fpl_players: list[dict[str, Any]],
     live_defcon: dict[int, list[tuple[int, float]]] | None,
+    shrinkage: ShrinkageConfig | None = None,
 ) -> dict[int, PlayerRates]:
     live_defcon = live_defcon or {}
+    sk = shrinkage or ShrinkageConfig()
     pos_lam = {
         etype: position_defcon90(fpl_players, etype)
         for etype in (ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
@@ -1043,6 +1056,7 @@ def attach_defcon(
             own90,
             pos_lam.get(int(player.get("element_type") or 0), 8.0),
             threshold,
+            int(sk.defcon_k),
         )
         source = "live+mean" if games else "mean"
         updated[eid] = replace(
@@ -1149,8 +1163,10 @@ def attach_bonus(
     rates_by_id: dict[int, PlayerRates],
     fpl_players: list[dict[str, Any]],
     live_matches: dict[int, list[dict[str, float]]] | None,
+    shrinkage: ShrinkageConfig | None = None,
 ) -> dict[int, PlayerRates]:
     live_matches = live_matches or {}
+    sk = shrinkage or ShrinkageConfig()
     curve = build_bonus_curve(live_matches)
     pos_bps = {
         etype: position_bps_pg(fpl_players, etype)
@@ -1175,6 +1191,7 @@ def attach_bonus(
             own_bps,
             pos_bps.get(etype, 18.0),
             curve,
+            int(sk.bonus_k),
         )
         updated[eid] = replace(
             rates,
@@ -1255,8 +1272,10 @@ def attach_saves(
     fpl_players: list[dict[str, Any]],
     live_matches: dict[int, list[dict[str, float]]] | None,
     table: dict[str, int | float] | None = None,
+    shrinkage: ShrinkageConfig | None = None,
 ) -> dict[int, PlayerRates]:
     live_matches = live_matches or {}
+    sk = shrinkage or ShrinkageConfig()
     table = table or scoring_table()
     per = int(table["save_per"])
     points_per = float(table["save_points"])
@@ -1285,6 +1304,7 @@ def attach_saves(
             pos_lam,
             per=per,
             points_per=points_per,
+            prior_games=int(sk.saves_k),
         )
         updated[eid] = replace(
             rates,
@@ -1368,9 +1388,11 @@ def attach_cards(
     fpl_players: list[dict[str, Any]],
     live_matches: dict[int, list[dict[str, float]]] | None,
     role_priors: dict[int, tuple[float, float]] | None = None,
+    shrinkage: ShrinkageConfig | None = None,
 ) -> dict[int, PlayerRates]:
     live_matches = live_matches or {}
     role_priors = role_priors or {}
+    sk = shrinkage or ShrinkageConfig()
     pos_y = {
         etype: position_card90(
             fpl_players,
@@ -1378,7 +1400,7 @@ def attach_cards(
             "yellow_cards",
             YELLOW90_DEFAULT[etype],
             role_priors[etype][0] if etype in role_priors else None,
-            YELLOW_PRIOR_GAMES,
+            int(sk.yellow_k),
         )
         for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
     }
@@ -1389,7 +1411,7 @@ def attach_cards(
             "red_cards",
             RED90_DEFAULT[etype],
             role_priors[etype][1] if etype in role_priors else None,
-            RED_PRIOR_GAMES,
+            int(sk.red_k),
         )
         for etype in (ELEMENT_TYPE_GKP, ELEMENT_TYPE_DEF, ELEMENT_TYPE_MID, ELEMENT_TYPE_FWD)
     }
@@ -1420,7 +1442,7 @@ def attach_cards(
             y_obs,
             y90,
             pos_y.get(etype, YELLOW90_DEFAULT.get(etype, 0.12)),
-            YELLOW_PRIOR_GAMES,
+            int(sk.yellow_k),
         )
         r_lam, red_p = shrink_card_p(
             n90,
@@ -1428,7 +1450,7 @@ def attach_cards(
             r_obs,
             r90,
             pos_r.get(etype, RED90_DEFAULT.get(etype, 0.02)),
-            RED_PRIOR_GAMES,
+            int(sk.red_k),
         )
         updated[eid] = replace(
             rates,
