@@ -17,6 +17,7 @@ bootstrap `game_settings` when present). Everything else is a modelling choice:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, fields, replace
 from typing import Any, Callable, TypeVar
 
 # --- Official FPL rules (high confidence). Scoring falls back if bootstrap omits a key. ---
@@ -87,6 +88,71 @@ FINISHING_PRIOR_GAMES = 18
 HOME_SPLIT_PRIOR_GAMES = 10
 MIN_PRIOR_MINUTES = 180
 MINUTES_PRIOR_GAMES = 4
+
+
+@dataclass(frozen=True)
+class ShrinkageConfig:
+    """Equivalent sample sizes. Defaults match the module constants above."""
+
+    minutes_k: float = MINUTES_PRIOR_GAMES
+    xgi_k: float = XGI_PRIOR_90S
+    position_xgi_k: float = POSITION_XGI_PRIOR_90S
+    team_k: float = TEAM_STRENGTH_PRIOR_GAMES
+    finishing_k: float = FINISHING_PRIOR_GAMES
+    home_split_k: float = HOME_SPLIT_PRIOR_GAMES
+    defcon_k: float = DEFCON_PRIOR_GAMES
+    bonus_k: float = BONUS_PRIOR_GAMES
+    saves_k: float = SAVES_PRIOR_GAMES
+    yellow_k: float = YELLOW_PRIOR_GAMES
+    red_k: float = RED_PRIOR_GAMES
+
+    def as_dict(self) -> dict[str, float]:
+        return {item.name: float(getattr(self, item.name)) for item in fields(self)}
+
+    def variant_slug(self, baseline: ShrinkageConfig | None = None) -> str:
+        base = baseline or ShrinkageConfig()
+        parts: list[str] = []
+        for item in fields(self):
+            mine = getattr(self, item.name)
+            if mine != getattr(base, item.name):
+                parts.append(f"{item.name.replace('_', '-')}-{mine:g}")
+        return "default" if not parts else "_".join(parts)
+
+
+def shrinkage_from_overrides(**overrides: float | None) -> ShrinkageConfig:
+    kwargs = {key: value for key, value in overrides.items() if value is not None}
+    return replace(ShrinkageConfig(), **kwargs) if kwargs else ShrinkageConfig()
+
+
+def add_shrinkage_arguments(parser: Any) -> None:
+    group = parser.add_argument_group("shrinkage k (omit to keep production defaults)")
+    group.add_argument("--minutes-k", type=float, default=None, dest="minutes_k", help="Minutes / P(play) prior games")
+    group.add_argument("--xgi-k", type=float, default=None, dest="xgi_k", help="Player xG/xA/90 prior 90s")
+    group.add_argument(
+        "--position-xgi-k",
+        type=float,
+        default=None,
+        dest="position_xgi_k",
+        help="Position xGI hyperprior 90s",
+    )
+    group.add_argument("--team-k", type=float, default=None, dest="team_k", help="Team attack/defence prior games")
+    group.add_argument("--finishing-k", type=float, default=None, dest="finishing_k", help="GF/xG finishing prior games")
+    group.add_argument("--defcon-k", type=float, default=None, dest="defcon_k", help="DefCon prior games")
+    group.add_argument("--bonus-k", type=float, default=None, dest="bonus_k", help="Bonus/BPS prior games")
+    group.add_argument("--saves-k", type=float, default=None, dest="saves_k", help="GK saves prior games")
+
+
+def shrinkage_from_args(args: Any) -> ShrinkageConfig:
+    return shrinkage_from_overrides(
+        minutes_k=getattr(args, "minutes_k", None),
+        xgi_k=getattr(args, "xgi_k", None),
+        position_xgi_k=getattr(args, "position_xgi_k", None),
+        team_k=getattr(args, "team_k", None),
+        finishing_k=getattr(args, "finishing_k", None),
+        defcon_k=getattr(args, "defcon_k", None),
+        bonus_k=getattr(args, "bonus_k", None),
+        saves_k=getattr(args, "saves_k", None),
+    )
 # P(play) = share of scheduled GWs with minutes > 0.
 # unused:  p_played <= MINUTES_UNUSED_RATE  (true DNPs: 0 minutes every GW)
 # rotation: MINUTES_UNUSED_RATE < p_played < MINUTES_REGULAR_RATE

@@ -1,6 +1,7 @@
 *.env
 data/cache/
 data/understat/
+xp-snapshots/
 
 # Shared Cursor rules are tracked; everything else under .cursor/ is local.
 .cursor/*
