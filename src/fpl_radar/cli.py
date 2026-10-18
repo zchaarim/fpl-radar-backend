@@ -3,12 +3,18 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 from fpl_radar.clients.auth import FplAuthClient, build_auth_client
 from fpl_radar.clients.fpl import FplClient
 from fpl_radar.features import availability_note, rank_xgi_rates
-from fpl_radar.fpl_rules import POSITION_LABELS, POSITION_ORDER
+from fpl_radar.fpl_rules import (
+    POSITION_LABELS,
+    POSITION_ORDER,
+    add_shrinkage_arguments,
+    shrinkage_from_args,
+)
 from fpl_radar.identity.match import identity_coverage
 from fpl_radar.ingest.sync import default_cache, load_model_context, sync_fpl, sync_understat
 from fpl_radar.models import TransferOption
@@ -16,6 +22,7 @@ from fpl_radar.squad import load_manager_squad, resolve_owned_players
 from fpl_radar.transfers.plan import make_plan
 from fpl_radar.transfers.rank import rank_replacements
 from fpl_radar.xp.model import expected_points, horizon_event_ids, rank_horizon_xp
+from fpl_radar.xp.snapshot import build_snapshot
 
 
 def _client() -> FplClient:
@@ -312,6 +319,23 @@ def cmd_xgi(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_snapshot(args: argparse.Namespace) -> int:
+    shrinkage = shrinkage_from_args(args)
+    rows, meta = build_snapshot(int(args.event or 0), sync=bool(args.sync), shrinkage=shrinkage)
+    event_id = int(meta["event_id"])
+    variant = str(meta.get("variant") or "default")
+    default_name = f"gw{event_id}.jsonl" if variant == "default" else f"gw{event_id}.{variant}.jsonl"
+    out = Path(args.out) if args.out else Path("xp-snapshots") / default_name
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, default=str) + "\n")
+    meta_path = out.with_suffix(".meta.json")
+    meta_path.write_text(json.dumps({**meta, "path": str(out), "wrote": len(rows)}, indent=2) + "\n")
+    print(json.dumps({**meta, "wrote": len(rows), "path": str(out)}, default=str))
+    return 0
+
+
 def _limit_help() -> str:
     return "Max rows per position (GKP, DEF, MID, FWD)"
 
@@ -387,6 +411,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Drop players with fewer than this many minutes in the rate sample",
     )
     xgi.set_defaults(func=cmd_xgi)
+
+    snap = sub.add_parser(
+        "snapshot",
+        help="Freeze horizon-1 xP (and components) for a GW; optional shrinkage k overrides",
+    )
+    snap.add_argument("--event", type=int, default=None, help="Gameweek id (default: next horizon-1 GW)")
+    snap.add_argument("--sync", action="store_true", help="Refresh FPL + Understat caches first")
+    snap.add_argument(
+        "--out",
+        default=None,
+        help="jsonl path (default xp-snapshots/gwN.jsonl or gwN.<variant>.jsonl)",
+    )
+    add_shrinkage_arguments(snap)
+    snap.set_defaults(func=cmd_snapshot)
     return parser
 
 
