@@ -6,11 +6,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md constraints.txt ./
 COPY src ./src
 COPY data/mappings ./data/mappings
 
-RUN pip install --no-cache-dir -e . \
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -c constraints.txt --upgrade setuptools wheel \
+    && pip install --no-cache-dir -c constraints.txt -e . \
     && mkdir -p /app/data/cache /app/data/understat
 
 ENV FPL_DATA_DIR=/app/data

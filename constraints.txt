@@ -1,0 +1,5 @@
+# Floors for packages Trivy flagged as HIGH in the runtime image.
+# setuptools ships with the official Python image; msgpack is transitive (ortools).
+msgpack>=1.2.1
+setuptools>=78.1.1
+urllib3>=2.8.0

@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "requests>=2.32",
+  "urllib3>=2.8.0",
   "pydantic>=2.7",
   "pandas>=2.2",
   "beautifulsoup4>=4.12",
