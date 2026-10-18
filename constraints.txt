@@ -1,0 +1,4 @@
+# Floors for packages installed into the image (app code + build).
+# pip 26.x also vendors a CycloneDX SBOM with older pins; that file is not
+# runtime. The image uninstalls pip after install so Trivy does not scan it.
+urllib3>=2.8.0
