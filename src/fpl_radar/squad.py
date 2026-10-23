@@ -228,6 +228,21 @@ def resolve_owned_players(squad: ManagerSquad, tokens: list[str]) -> list[int]:
     return resolved
 
 
+def pin_armbands_to_xi(players: list[Any]) -> None:
+    """Keep exactly one captain and one vice, both in the starting XI."""
+    xi = [player for player in players if (getattr(player, "position", None) or 99) <= 11]
+    if not xi:
+        return
+    captain = next((player for player in xi if player.is_captain), None) or xi[0]
+    vice = next(
+        (player for player in xi if player.is_vice_captain and player.element_id != captain.element_id),
+        None,
+    ) or next((player for player in xi if player.element_id != captain.element_id), captain)
+    for player in players:
+        player.is_captain = player.element_id == captain.element_id
+        player.is_vice_captain = player.element_id == vice.element_id
+
+
 def load_manager_squad(
     client: FplClient,
     entry_id: int,

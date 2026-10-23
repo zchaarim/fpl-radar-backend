@@ -166,6 +166,58 @@ def test_squad_uses_precomputed_xp(monkeypatch) -> None:
     assert second.json()["players"][0]["horizon_xp"] == cached_xp
 
 
+def test_board_default_event(monkeypatch) -> None:
+    client = _app(monkeypatch)
+    response = client.get("/v1/entries/99/board")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["entry_id"] == 99
+    assert body["event"]["id"] == 2
+    assert body["mode"] == "predicted"
+    assert body["picks_published"] is True
+    assert body["placeholder"] is True
+    assert len(body["events"]) == 1
+    assert body["events"][0]["id"] == 2
+    assert len(body["players"]) == 15
+    assert "team_xp" in body
+    first = body["players"][0]
+    assert first["element_id"] == 1
+    assert first["photo_code"] == 1001
+    assert first["selected_by_percent"] == 10.5
+    assert first["opponent"] == "LIV (H)"
+    assert first["fixture_count"] == 1
+    assert first["metric_actual"] == 2.0
+    assert "metric_xp" in first
+    captains = [p for p in body["players"] if p["is_captain"]]
+    vices = [p for p in body["players"] if p["is_vice_captain"]]
+    assert len(captains) == 1
+    assert len(vices) == 1
+    assert captains[0]["position"] <= 11
+    assert vices[0]["position"] <= 11
+    assert captains[0]["element_id"] != vices[0]["element_id"]
+    assert not any(p["is_captain"] or p["is_vice_captain"] for p in body["players"] if (p["position"] or 99) > 11)
+
+
+def test_board_rejects_finished_event(monkeypatch) -> None:
+    client = _app(monkeypatch)
+    response = client.get("/v1/entries/99/board?event=1")
+    assert response.status_code == 400
+
+
+def test_board_ft_override(monkeypatch) -> None:
+    client = _app(monkeypatch)
+    response = client.get("/v1/entries/99/board?ft=4")
+    assert response.status_code == 200
+    assert response.json()["free_transfers"] == 4
+    assert response.json()["free_transfers_source"] == "caller_override"
+
+
+def test_board_unknown_event(monkeypatch) -> None:
+    client = _app(monkeypatch)
+    response = client.get("/v1/entries/99/board?event=99")
+    assert response.status_code == 400
+
+
 def test_entry_and_squad(monkeypatch) -> None:
     client = _app(monkeypatch)
     entry = client.get("/v1/entries/99")

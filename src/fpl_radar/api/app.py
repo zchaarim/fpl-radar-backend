@@ -14,6 +14,7 @@ from fpl_radar import config
 from fpl_radar.api.runtime import PlanInProgress, Runtime, SyncInProgress
 from fpl_radar.api.schemas import PlanRequest, StatusResponse, SyncResponse
 from fpl_radar.api.serialize import (
+    board_payload,
     current_event_id,
     entry_summary,
     plan_payload,
@@ -23,6 +24,7 @@ from fpl_radar.api.serialize import (
     xp_listing,
 )
 from fpl_radar.clients.fpl import FplApiError
+from fpl_radar.fpl_rules import MAX_FREE_TRANSFERS
 from fpl_radar.identity.match import identity_coverage
 from fpl_radar.squad import load_manager_squad
 
@@ -109,12 +111,17 @@ def create_app(
         allow_headers=["*"],
     )
 
-    def load_entry_squad(entry_id: int, budget_remaining: float | None = None):
+    def load_entry_squad(
+        entry_id: int,
+        budget_remaining: float | None = None,
+        free_transfers_override: int | None = None,
+    ):
         try:
             return load_manager_squad(
                 rt.fpl_client(),
                 entry_id,
                 budget_remaining=budget_remaining,
+                free_transfers_override=free_transfers_override,
             )
         except FplApiError as exc:
             raise_fpl_http(exc, not_found_detail="Entry not found")
@@ -195,6 +202,25 @@ def create_app(
             model_context(),
             horizon,
         )
+
+    @app.get("/v1/entries/{entry_id}/board")
+    def board(
+        entry_id: int,
+        event: Annotated[int | None, Query(ge=1)] = None,
+        bank: Annotated[float | None, Query(ge=0)] = None,
+        ft: Annotated[int | None, Query(ge=0, le=MAX_FREE_TRANSFERS)] = None,
+    ):
+        try:
+            loaded = load_entry_squad(
+                entry_id,
+                budget_remaining=bank,
+                free_transfers_override=ft,
+            )
+            return board_payload(loaded, model_context(), rt.fpl_client(), event)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FplApiError as exc:
+            raise_fpl_http(exc)
 
     @app.get("/v1/entries/{entry_id}/recommendations")
     def recommendations(

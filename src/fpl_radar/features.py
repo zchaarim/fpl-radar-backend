@@ -427,11 +427,25 @@ def project_minutes(player: dict[str, Any], rates: PlayerRates) -> tuple[float, 
     return mins, min(p60, played), played
 
 
+def availability_fields(player: dict[str, Any] | None) -> tuple[str, int | None, str]:
+    """Return ``(status, chance_of_playing, news)``. Chance is None if FPL omitted it."""
+    if not player:
+        return "a", None, ""
+    status = str(player.get("status") or "a").lower()
+    raw = player.get("chance_of_playing_next_round")
+    chance: int | None = None
+    if raw is not None:
+        try:
+            chance = int(float(raw))
+        except (TypeError, ValueError):
+            chance = None
+    news = str(player.get("news") or "").strip()
+    return status, chance, news
+
+
 def availability_note(player: dict[str, Any] | None) -> str:
     """FPL traffic-light / news for display. Empty if the player is available."""
-    if not player:
-        return ""
-    status = (player.get("status") or "a").lower()
+    status, chance, news = availability_fields(player)
     labels = {
         "d": "flag yellow",
         "i": "flag red",
@@ -442,15 +456,8 @@ def availability_note(player: dict[str, Any] | None) -> str:
     parts: list[str] = []
     if status in labels:
         parts.append(labels[status])
-    chance = player.get("chance_of_playing_next_round")
-    if chance is not None:
-        try:
-            pct = int(float(chance))
-        except (TypeError, ValueError):
-            pct = None
-        if pct is not None and pct < 100:
-            parts.append(f"{pct}% next GW")
-    news = str(player.get("news") or "").strip()
+    if chance is not None and chance < 100:
+        parts.append(f"{chance}% next GW")
     if news:
         parts.append(news[:80])
     return "; ".join(dict.fromkeys(parts))

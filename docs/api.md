@@ -87,12 +87,15 @@ python -m pytest -q
 | POST | `/v1/sync` | header `X-Sync-Token` = `FPL_SYNC_TOKEN` |
 | GET | `/v1/entries/{entry_id}?bank=` | none (public reconstruction) |
 | GET | `/v1/entries/{entry_id}/squad?horizon=5&bank=` | none |
+| GET | `/v1/entries/{entry_id}/board?event=&ft=` | none |
 | GET | `/v1/xp?horizon=5&limit=10` | none |
 | GET | `/v1/xgi?limit=10&min_minutes=0` | none |
 | GET | `/v1/entries/{entry_id}/recommendations?horizon=5&limit=10&remove_player=&bank=` | none |
 | POST | `/v1/entries/{entry_id}/plan` | none |
 
 v1 squad is public picks only (estimated sale prices). Remaining FTs are **estimated** from history (+1 each GW, cap 5, minus transfers; wildcard/free hit do not spend FTs) unless `my-team` auth or `ft=` is set. A later in-memory FPL session can enrich “mine” without caching JWTs on disk.
+
+`GET /v1/entries/{id}/board` is the squad-board payload for **unfinished** GWs only (default = first unfinished). Pick `position` 1–11 is the XI, 12–15 the bench. Captain xP is doubled in `team_xp` (XI only).
 
 `GET /v1/xp` is top N **per position** by horizon xP (same as CLI `xp`). `GET /v1/xgi` is top N per position by xGI/90 (`min_minutes` drops thin samples). xGI returns **503** until features exist (`POST /v1/sync` or CLI `sync`).
 

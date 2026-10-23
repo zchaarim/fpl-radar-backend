@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from fpl_radar.api.schemas import (
+    BoardEvent,
+    BoardPlayerRow,
+    BoardResponse,
     EntrySummary,
     Money,
     PlanMoveRow,
@@ -16,10 +19,11 @@ from fpl_radar.api.schemas import (
     XpPlayerRow,
     XpResponse,
 )
-from fpl_radar.features import availability_note, rank_xgi_rates
+from fpl_radar.clients.fpl import FplApiError, FplClient
+from fpl_radar.features import availability_fields, availability_note, rank_xgi_rates
 from fpl_radar.fpl_rules import POSITION_ORDER, tenths_to_pounds
 from fpl_radar.models import ManagerSquad
-from fpl_radar.squad import resolve_owned_players
+from fpl_radar.squad import apply_event_transfers, pin_armbands_to_xi, resolve_owned_players
 from fpl_radar.transfers.plan import make_plan
 from fpl_radar.transfers.rank import rank_replacements
 from fpl_radar.xp.model import ModelContext, horizon_event_ids, player_xp, rank_horizon_xp
@@ -43,6 +47,16 @@ def current_event_id(bootstrap: dict) -> int | None:
         if event.get("is_next"):
             return int(event["id"])
     return None
+
+
+def first_unfinished_event_id(bootstrap: dict) -> int | None:
+    for event in bootstrap.get("events") or []:
+        if event.get("finished"):
+            continue
+        eid = int(event.get("id") or 0)
+        if eid:
+            return eid
+    return current_event_id(bootstrap)
 
 
 def entry_summary(squad: ManagerSquad) -> EntrySummary:
@@ -93,6 +107,180 @@ def squad_payload(squad: ManagerSquad, context: ModelContext, horizon: int) -> S
         event_ids=event_ids,
         xp_source=xp_source(context),
         placeholder=placeholder,
+        players=rows,
+    )
+
+
+def _event_chips(bootstrap: dict) -> list[BoardEvent]:
+    chips: list[BoardEvent] = []
+    for event in bootstrap.get("events") or []:
+        eid = int(event.get("id") or 0)
+        if not eid:
+            continue
+        chips.append(
+            BoardEvent(
+                id=eid,
+                name=str(event.get("name") or f"GW {eid}"),
+                finished=bool(event.get("finished")),
+                is_current=bool(event.get("is_current")),
+                is_next=bool(event.get("is_next")),
+                deadline_time=event.get("deadline_time"),
+            )
+        )
+    return chips
+
+
+def _live_points(client: FplClient, event_id: int) -> dict[int, float]:
+    try:
+        live = client.event_live(event_id)
+    except FplApiError:
+        return {}
+    out: dict[int, float] = {}
+    for row in live.get("elements") or []:
+        pid = int(row.get("id") or 0)
+        if not pid:
+            continue
+        stats = row.get("stats") or {}
+        out[pid] = float(stats.get("total_points") or 0)
+    return out
+
+
+def _try_picks(client: FplClient, entry_id: int, event_id: int) -> list[dict] | None:
+    try:
+        payload = client.entry_picks(entry_id, event_id)
+    except FplApiError:
+        return None
+    picks = list(payload.get("picks") or [])
+    return picks or None
+
+
+def _opponent(fixtures: list[dict], team_id: int, event_id: int, teams: dict[int, str]) -> tuple[str, int]:
+    labels: list[str] = []
+    for fixture in fixtures:
+        if int(fixture.get("event") or 0) != event_id:
+            continue
+        home = int(fixture.get("team_h") or 0)
+        away = int(fixture.get("team_a") or 0)
+        if team_id == home:
+            labels.append(f"{teams.get(away, '?')} (H)")
+        elif team_id == away:
+            labels.append(f"{teams.get(home, '?')} (A)")
+    if not labels:
+        return "Blank", 0
+    return " + ".join(labels), len(labels)
+
+
+def board_payload(
+    squad: ManagerSquad,
+    context: ModelContext,
+    client: FplClient,
+    event_id: int | None,
+) -> BoardResponse:
+    catalog = _event_chips(context.bootstrap)
+    upcoming = [e for e in catalog if not e.finished]
+    by_id = {e.id: e for e in catalog}
+    selected_id = int(event_id) if event_id is not None else first_unfinished_event_id(context.bootstrap)
+    if selected_id not in by_id:
+        raise ValueError(f"Unknown event {selected_id}")
+    selected = by_id[selected_id]
+    if selected.finished:
+        raise ValueError("Board only covers unfinished gameweeks")
+    mode = "predicted"
+    events = upcoming
+    picks = _try_picks(client, squad.entry_id, selected_id)
+    players_by_id = {int(p["id"]): p for p in context.bootstrap.get("elements") or []}
+    teams = _club_map(context)
+    fixtures = client.fixtures()
+    live = _live_points(client, selected_id)
+    if picks is not None and not selected.finished:
+        picks = apply_event_transfers(picks, client.entry_transfers(squad.entry_id), selected_id)
+
+    if picks is not None:
+        ordered = []
+        for pick in picks:
+            pid = int(pick.get("element") or 0)
+            meta = players_by_id.get(pid)
+            if meta is None:
+                continue
+            ordered.append((pick, meta))
+    else:
+        ordered = [
+            (
+                {
+                    "element": p.element_id,
+                    "position": p.position,
+                    "is_captain": p.is_captain,
+                    "is_vice_captain": p.is_vice_captain,
+                },
+                players_by_id.get(p.element_id) or {},
+            )
+            for p in squad.players
+        ]
+
+    rows: list[BoardPlayerRow] = []
+    placeholder = context.features is None
+    for pick, meta in ordered:
+        pid = int(meta.get("id") or pick.get("element") or 0)
+        team_id = int(meta.get("team") or 0)
+        xp = player_xp(pid, [selected_id], context)
+        rates = context.features.players.get(pid) if context.features else None
+        opponent, fixture_count = _opponent(fixtures, team_id, selected_id, teams)
+        ownership = meta.get("selected_by_percent")
+        try:
+            ownership_f = float(ownership) if ownership not in (None, "") else None
+        except (TypeError, ValueError):
+            ownership_f = None
+        photo = meta.get("code")
+        status, chance, news = availability_fields(meta)
+        pos = int(pick["position"]) if pick.get("position") is not None else None
+        now_cost = int(meta.get("now_cost") or 0)
+        held = next((p for p in squad.players if p.element_id == pid), None)
+        selling = held.selling_price if held is not None else now_cost
+        rows.append(
+            BoardPlayerRow(
+                element_id=pid,
+                web_name=str(meta.get("web_name") or pid),
+                team_id=team_id,
+                team_short=teams.get(team_id, "?"),
+                element_type=int(meta.get("element_type") or 0),
+                position=pos,
+                is_captain=bool(pick.get("is_captain")),
+                is_vice_captain=bool(pick.get("is_vice_captain")),
+                photo_code=int(photo) if photo not in (None, "") else None,
+                selected_by_percent=ownership_f,
+                now_cost=money(now_cost),
+                selling_price=money(int(selling)),
+                xgi90=rates.xgi90 if rates is not None else None,
+                flag=availability_note(meta),
+                status=status,
+                chance_of_playing=chance,
+                news=news,
+                metric_xp=float(xp.per_event.get(selected_id, 0.0)),
+                metric_actual=live.get(pid),
+                opponent=opponent,
+                fixture_count=fixture_count,
+            )
+        )
+        placeholder = placeholder or xp.placeholder
+
+    pin_armbands_to_xi(rows)
+    team_xp = 0.0
+    for row in rows:
+        if row.position is not None and row.position > 11:
+            continue
+        applied = row.metric_xp * (2.0 if row.is_captain else 1.0)
+        team_xp += applied
+
+    header = entry_summary(squad)
+    return BoardResponse(
+        **header.model_dump(),
+        event=selected,
+        events=events,
+        mode=mode,
+        picks_published=picks is not None,
+        xp_source=xp_source(context),
+        placeholder=placeholder,
+        team_xp=round(team_xp, 3),
         players=rows,
     )
 
