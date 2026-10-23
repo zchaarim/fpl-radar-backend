@@ -6,6 +6,7 @@ from tests.fixtures import bootstrap_sample
 from fpl_radar.clients.auth import FplAuthClient
 from fpl_radar.models import PriceSource
 from fpl_radar.squad import (
+    apply_event_transfers,
     estimate_free_transfers,
     load_manager_squad,
     purchase_ledger,
@@ -103,6 +104,42 @@ def test_estimate_free_transfers_wildcard_skips_spend() -> None:
     }
     ft, _ = estimate_free_transfers(events, history, [], current_id=2)
     assert ft == 2
+
+
+def test_apply_event_transfers_is_idempotent_if_already_in_picks() -> None:
+    picks = [{"element": i, "position": i} for i in range(1, 16)]
+    moved = apply_event_transfers(
+        picks,
+        [{"event": 2, "element_out": 12, "element_in": 16, "time": "t"}],
+        2,
+    )
+    assert [p["element"] for p in moved][11] == 16
+    again = apply_event_transfers(
+        moved,
+        [{"event": 2, "element_out": 12, "element_in": 16, "time": "t"}],
+        2,
+    )
+    assert [p["element"] for p in again][11] == 16
+
+
+def test_reconstruct_applies_current_gw_transfers_on_published_picks() -> None:
+    routes = public_routes()
+    routes["entry/99/transfers/"] = [
+        {
+            "event": 2,
+            "element_in": 16,
+            "element_out": 12,
+            "element_in_cost": 85,
+            "element_out_cost": 50,
+            "time": "2026-08-20T12:00:00Z",
+        }
+    ]
+    client = client_from_routes(routes)
+    squad = load_manager_squad(client, 99)
+    ids = [p.element_id for p in squad.players]
+    assert 16 in ids
+    assert 12 not in ids
+    assert squad.free_transfers == 1
 
 
 def test_remaining_free_transfers() -> None:

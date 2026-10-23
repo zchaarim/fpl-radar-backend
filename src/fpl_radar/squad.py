@@ -52,6 +52,32 @@ def _picks_or_none(client: FplClient, entry_id: int, event_id: int) -> dict[str,
     return payload
 
 
+def apply_event_transfers(
+    picks: list[dict[str, Any]],
+    transfers: list[dict[str, Any]],
+    event_id: int,
+) -> list[dict[str, Any]]:
+    """Replay that GW's public transfers onto a 15, in time order.
+
+    Safe if FPL already baked the moves into ``picks`` (``element_out`` is gone).
+    """
+    ordered = [dict(pick) for pick in picks]
+    ids = [int(pick.get("element") or 0) for pick in ordered]
+    pending = [t for t in transfers if int(t.get("event") or 0) == event_id]
+    pending.sort(key=lambda t: t.get("time") or "")
+    for transfer in pending:
+        out_id = int(transfer["element_out"])
+        in_id = int(transfer["element_in"])
+        if out_id in ids:
+            index = ids.index(out_id)
+            ids[index] = in_id
+            ordered[index]["element"] = in_id
+        elif in_id not in ids:
+            ordered.append({"element": in_id, "position": len(ordered) + 1})
+            ids.append(in_id)
+    return ordered
+
+
 def reconstruct_pick_elements(
     client: FplClient,
     entry_id: int,
@@ -61,26 +87,15 @@ def reconstruct_pick_elements(
     current_id, finished = current_event(events)
     current_picks = _picks_or_none(client, entry_id, current_id)
     if current_picks:
-        return current_picks["picks"], current_id
+        picks = apply_event_transfers(current_picks["picks"], transfers, current_id)
+        return picks, current_id
 
     prev_id = last_finished_event_id(events, current_id)
     prev_picks = _picks_or_none(client, entry_id, prev_id)
     if not prev_picks:
         raise FplApiError(f"No published picks for entry {entry_id}")
 
-    squad = [int(p["element"]) for p in prev_picks["picks"]]
-    pending = [t for t in transfers if int(t.get("event") or 0) == current_id]
-    pending.sort(key=lambda t: t.get("time") or "")
-    for transfer in pending:
-        out_id = int(transfer["element_out"])
-        in_id = int(transfer["element_in"])
-        if out_id in squad:
-            squad[squad.index(out_id)] = in_id
-        else:
-            squad.append(in_id)
-    picks = []
-    for i, element_id in enumerate(squad, start=1):
-        picks.append({"element": element_id, "position": i})
+    picks = apply_event_transfers(prev_picks["picks"], transfers, current_id)
     return picks, current_id if not finished else prev_id
 
 
