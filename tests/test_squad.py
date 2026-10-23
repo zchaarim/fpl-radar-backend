@@ -9,6 +9,9 @@ from fpl_radar.squad import (
     apply_event_transfers,
     estimate_free_transfers,
     load_manager_squad,
+    overlay_squad_elements,
+    parse_element_ids,
+    pin_armbands_to_xi,
     purchase_ledger,
     remaining_free_transfers,
     resolve_owned_players,
@@ -140,6 +143,48 @@ def test_reconstruct_applies_current_gw_transfers_on_published_picks() -> None:
     assert 16 in ids
     assert 12 not in ids
     assert squad.free_transfers == 1
+
+
+def test_parse_and_overlay_elements() -> None:
+    client = client_from_routes(public_routes())
+    squad = load_manager_squad(client, 99)
+    ids = parse_element_ids("1,2,3,4,5,6,7,8,9,10,11,16,13,14,15")
+    assert ids is not None
+    overlaid = overlay_squad_elements(
+        squad,
+        {int(p["id"]): p for p in bootstrap_sample()["elements"]},
+        ids,
+    )
+    assert overlaid.players[11].element_id == 16
+    assert overlaid.players[11].web_name == "MID6"
+
+
+def test_overlay_pins_armbands_to_xi() -> None:
+    client = client_from_routes(public_routes())
+    squad = load_manager_squad(client, 99)
+    ordered = sorted(squad.players, key=lambda p: p.position or 99)
+    ids = [p.element_id for p in ordered]
+    captain = next(p for p in ordered if p.is_captain)
+    vice = next(p for p in ordered if p.is_vice_captain)
+    i_cap = ids.index(captain.element_id)
+    i_vice = ids.index(vice.element_id)
+    ids[i_cap], ids[i_vice] = ids[i_vice], ids[i_cap]
+    overlaid = overlay_squad_elements(
+        squad,
+        {int(p["id"]): p for p in bootstrap_sample()["elements"]},
+        ids,
+        captain_id=vice.element_id,
+        vice_id=ids[0] if ids[0] != vice.element_id else ids[1],
+    )
+    pin_armbands_to_xi(overlaid.players)
+    captains = [p for p in overlaid.players if p.is_captain]
+    vices = [p for p in overlaid.players if p.is_vice_captain]
+    assert len(captains) == 1
+    assert len(vices) == 1
+    assert captains[0].element_id != vices[0].element_id
+    assert (captains[0].position or 99) <= 11
+    assert (vices[0].position or 99) <= 11
+    assert not any(p.is_captain or p.is_vice_captain for p in overlaid.players if (p.position or 99) > 11)
 
 
 def test_remaining_free_transfers() -> None:

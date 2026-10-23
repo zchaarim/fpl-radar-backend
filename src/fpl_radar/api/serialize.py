@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import unicodedata
+
 from fpl_radar.api.schemas import (
     BoardEvent,
     BoardPlayerRow,
@@ -10,6 +12,8 @@ from fpl_radar.api.schemas import (
     PlanRequest,
     PlanResponse,
     PlanSquadPlayer,
+    PlayerSearchResponse,
+    PlayerSearchRow,
     RecommendationRow,
     RecommendationsResponse,
     SquadPlayerRow,
@@ -47,6 +51,30 @@ def current_event_id(bootstrap: dict) -> int | None:
         if event.get("is_next"):
             return int(event["id"])
     return None
+
+
+_FOLD_EXTRA = str.maketrans(
+    {
+        "ß": "ss",
+        "ẞ": "ss",
+        "æ": "ae",
+        "Æ": "ae",
+        "œ": "oe",
+        "Œ": "oe",
+        "ø": "o",
+        "Ø": "o",
+        "ł": "l",
+        "Ł": "l",
+        "đ": "d",
+        "Đ": "d",
+    }
+)
+
+
+def fold_search_text(value: str) -> str:
+    """Fold accents so 'gue' matches Guéhi and 'gros' matches Groß."""
+    folded = unicodedata.normalize("NFKD", value.translate(_FOLD_EXTRA))
+    return "".join(ch for ch in folded if not unicodedata.combining(ch)).casefold()
 
 
 def first_unfinished_event_id(bootstrap: dict) -> int | None:
@@ -175,6 +203,7 @@ def board_payload(
     context: ModelContext,
     client: FplClient,
     event_id: int | None,
+    element_ids: list[int] | None = None,
 ) -> BoardResponse:
     catalog = _event_chips(context.bootstrap)
     upcoming = [e for e in catalog if not e.finished]
@@ -195,7 +224,25 @@ def board_payload(
     if picks is not None and not selected.finished:
         picks = apply_event_transfers(picks, client.entry_transfers(squad.entry_id), selected_id)
 
-    if picks is not None:
+    if element_ids is not None and not selected.finished:
+        ordered = []
+        for index, pid in enumerate(element_ids, start=1):
+            meta = players_by_id.get(pid)
+            if meta is None:
+                raise ValueError(f"Unknown player {pid}")
+            held = next((p for p in squad.players if p.element_id == pid), None)
+            ordered.append(
+                (
+                    {
+                        "element": pid,
+                        "position": index,
+                        "is_captain": bool(held.is_captain) if held else False,
+                        "is_vice_captain": bool(held.is_vice_captain) if held else False,
+                    },
+                    meta,
+                )
+            )
+    elif picks is not None:
         ordered = []
         for pick in picks:
             pid = int(pick.get("element") or 0)
@@ -283,6 +330,50 @@ def board_payload(
         team_xp=round(team_xp, 3),
         players=rows,
     )
+
+
+def player_search(
+    context: ModelContext,
+    q: str,
+    element_type: int | None,
+    limit: int,
+) -> PlayerSearchResponse:
+    needle = fold_search_text(q.strip())
+    teams = _club_map(context)
+    scored: list[tuple[int, PlayerSearchRow]] = []
+    for player in context.bootstrap.get("elements") or []:
+        if element_type is not None and int(player.get("element_type") or 0) != element_type:
+            continue
+        web_name = str(player.get("web_name") or "")
+        first = str(player.get("first_name") or "")
+        second = str(player.get("second_name") or "")
+        blob = fold_search_text(f"{web_name} {first} {second}")
+        if needle not in blob:
+            continue
+        pid = int(player.get("id") or 0)
+        team_id = int(player.get("team") or 0)
+        status, chance, news = availability_fields(player)
+        photo = player.get("code")
+        rank = 0 if fold_search_text(web_name).startswith(needle) else 1
+        scored.append(
+            (
+                rank,
+                PlayerSearchRow(
+                    element_id=pid,
+                    web_name=web_name or str(pid),
+                    team_id=team_id,
+                    team_short=teams.get(team_id, "?"),
+                    element_type=int(player.get("element_type") or 0),
+                    now_cost=money(int(player.get("now_cost") or 0)),
+                    photo_code=int(photo) if photo not in (None, "") else None,
+                    status=status,
+                    chance_of_playing=chance,
+                    news=news,
+                ),
+            )
+        )
+    scored.sort(key=lambda item: (item[0], item[1].web_name.lower()))
+    return PlayerSearchResponse(q=q.strip(), limit=limit, players=[row for _, row in scored[:limit]])
 
 
 def _club_map(context: ModelContext) -> dict[int, str]:

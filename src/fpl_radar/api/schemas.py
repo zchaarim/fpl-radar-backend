@@ -124,6 +124,25 @@ class BoardResponse(EntrySummary):
     players: list[BoardPlayerRow]
 
 
+class PlayerSearchRow(BaseModel):
+    element_id: int
+    web_name: str
+    team_id: int
+    team_short: str
+    element_type: int
+    now_cost: Money
+    photo_code: int | None = None
+    status: str = "a"
+    chance_of_playing: int | None = None
+    news: str = ""
+
+
+class PlayerSearchResponse(BaseModel):
+    q: str
+    limit: int
+    players: list[PlayerSearchRow]
+
+
 class ListingPlayer(BaseModel):
     element_id: int
     web_name: str

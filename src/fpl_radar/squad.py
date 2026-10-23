@@ -8,6 +8,7 @@ from fpl_radar.clients.fpl import FplApiError, FplClient
 from fpl_radar.fpl_rules import (
     DEFAULT_FREE_TRANSFERS,
     MAX_FREE_TRANSFERS,
+    SQUAD_SIZE,
     estimated_selling_price,
     sell_on_fee,
     start_price,
@@ -150,6 +151,87 @@ def estimate_free_transfers(
     return ft, "history_estimate"
 
 
+def parse_element_ids(raw: str | None) -> list[int] | None:
+    if raw is None or not str(raw).strip():
+        return None
+    parts = [part.strip() for part in str(raw).split(",") if part.strip()]
+    try:
+        ids = [int(part) for part in parts]
+    except ValueError as exc:
+        raise ValueError("elements must be comma-separated player ids") from exc
+    if len(ids) != SQUAD_SIZE:
+        raise ValueError(f"elements must list {SQUAD_SIZE} player ids")
+    if len(set(ids)) != SQUAD_SIZE:
+        raise ValueError("elements must be 15 distinct player ids")
+    return ids
+
+
+def pin_armbands_to_xi(players: list[Any]) -> None:
+    """Keep exactly one captain and one vice, both in the starting XI."""
+    xi = [player for player in players if (getattr(player, "position", None) or 99) <= 11]
+    if not xi:
+        return
+    captain = next((player for player in xi if player.is_captain), None) or xi[0]
+    vice = next(
+        (player for player in xi if player.is_vice_captain and player.element_id != captain.element_id),
+        None,
+    ) or next((player for player in xi if player.element_id != captain.element_id), captain)
+    for player in players:
+        player.is_captain = player.element_id == captain.element_id
+        player.is_vice_captain = player.element_id == vice.element_id
+
+
+def overlay_squad_elements(
+    squad: ManagerSquad,
+    players_by_id: dict[int, dict[str, Any]],
+    element_ids: list[int],
+    captain_id: int | None = None,
+    vice_id: int | None = None,
+) -> ManagerSquad:
+    """Rebuild the 15 in pick order. Armbands follow player ids, then stay on the XI."""
+    existing = {player.element_id: player for player in squad.players}
+    old_slots = sorted(squad.players, key=lambda p: p.position or 99)
+    orig_captain = captain_id or next((p.element_id for p in old_slots if p.is_captain), None)
+    orig_vice = vice_id or next((p.element_id for p in old_slots if p.is_vice_captain), None)
+    rebuilt: list[SquadPlayer] = []
+    for index, pid in enumerate(element_ids, start=1):
+        held = existing.get(pid)
+        captain = pid == orig_captain
+        vice = pid == orig_vice
+        if held is not None:
+            rebuilt.append(
+                held.model_copy(
+                    update={
+                        "position": index,
+                        "is_captain": captain,
+                        "is_vice_captain": vice,
+                    }
+                )
+            )
+            continue
+        meta = players_by_id.get(pid)
+        if meta is None:
+            raise ValueError(f"Unknown player {pid}")
+        now_cost = int(meta.get("now_cost") or 0)
+        rebuilt.append(
+            SquadPlayer(
+                element_id=pid,
+                web_name=str(meta.get("web_name") or pid),
+                team_id=int(meta.get("team") or 0),
+                element_type=int(meta.get("element_type") or 0),
+                now_cost=now_cost,
+                purchase_price=now_cost,
+                selling_price=now_cost,
+                price_source=PriceSource.FALLBACK_NOW_COST,
+                position=index,
+                is_captain=captain,
+                is_vice_captain=vice,
+            )
+        )
+    pin_armbands_to_xi(rebuilt)
+    return squad.model_copy(update={"players": rebuilt})
+
+
 def purchase_ledger(
     gw1_picks: list[dict[str, Any]],
     transfers: list[dict[str, Any]],
@@ -226,21 +308,6 @@ def resolve_owned_players(squad: ManagerSquad, tokens: list[str]) -> list[int]:
         if pid not in resolved:
             resolved.append(pid)
     return resolved
-
-
-def pin_armbands_to_xi(players: list[Any]) -> None:
-    """Keep exactly one captain and one vice, both in the starting XI."""
-    xi = [player for player in players if (getattr(player, "position", None) or 99) <= 11]
-    if not xi:
-        return
-    captain = next((player for player in xi if player.is_captain), None) or xi[0]
-    vice = next(
-        (player for player in xi if player.is_vice_captain and player.element_id != captain.element_id),
-        None,
-    ) or next((player for player in xi if player.element_id != captain.element_id), captain)
-    for player in players:
-        player.is_captain = player.element_id == captain.element_id
-        player.is_vice_captain = player.element_id == vice.element_id
 
 
 def load_manager_squad(
