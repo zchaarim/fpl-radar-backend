@@ -80,6 +80,69 @@ class SquadResponse(EntrySummary):
     players: list[SquadPlayerRow]
 
 
+class BoardEvent(BaseModel):
+    id: int
+    name: str
+    finished: bool = False
+    is_current: bool = False
+    is_next: bool = False
+    deadline_time: str | None = None
+
+
+class BoardPlayerRow(BaseModel):
+    element_id: int
+    web_name: str
+    team_id: int
+    team_short: str
+    element_type: int
+    position: int | None = None
+    is_captain: bool = False
+    is_vice_captain: bool = False
+    photo_code: int | None = None
+    selected_by_percent: float | None = None
+    now_cost: Money
+    selling_price: Money
+    xgi90: float | None = None
+    flag: str = ""
+    status: str = "a"
+    chance_of_playing: int | None = None
+    news: str = ""
+    metric_xp: float = 0.0
+    metric_actual: float | None = None
+    opponent: str = "Blank"
+    fixture_count: int = 0
+
+
+class BoardResponse(EntrySummary):
+    event: BoardEvent
+    events: list[BoardEvent]
+    mode: Literal["actual", "predicted"]
+    picks_published: bool
+    xp_source: str
+    placeholder: bool
+    team_xp: float = 0.0
+    players: list[BoardPlayerRow]
+
+
+class PlayerSearchRow(BaseModel):
+    element_id: int
+    web_name: str
+    team_id: int
+    team_short: str
+    element_type: int
+    now_cost: Money
+    photo_code: int | None = None
+    status: str = "a"
+    chance_of_playing: int | None = None
+    news: str = ""
+
+
+class PlayerSearchResponse(BaseModel):
+    q: str
+    limit: int
+    players: list[PlayerSearchRow]
+
+
 class ListingPlayer(BaseModel):
     element_id: int
     web_name: str

@@ -14,17 +14,20 @@ from fpl_radar import config
 from fpl_radar.api.runtime import PlanInProgress, Runtime, SyncInProgress
 from fpl_radar.api.schemas import PlanRequest, StatusResponse, SyncResponse
 from fpl_radar.api.serialize import (
+    board_payload,
     current_event_id,
     entry_summary,
     plan_payload,
+    player_search,
     recommendations_payload,
     squad_payload,
     xgi_listing,
     xp_listing,
 )
 from fpl_radar.clients.fpl import FplApiError
+from fpl_radar.fpl_rules import MAX_FREE_TRANSFERS
 from fpl_radar.identity.match import identity_coverage
-from fpl_radar.squad import load_manager_squad
+from fpl_radar.squad import load_manager_squad, overlay_squad_elements, parse_element_ids
 
 logger = logging.getLogger(__name__)
 
@@ -109,15 +112,39 @@ def create_app(
         allow_headers=["*"],
     )
 
-    def load_entry_squad(entry_id: int, budget_remaining: float | None = None):
+    def load_entry_squad(
+        entry_id: int,
+        budget_remaining: float | None = None,
+        free_transfers_override: int | None = None,
+        elements: str | None = None,
+        captain: int | None = None,
+        vice: int | None = None,
+    ):
         try:
-            return load_manager_squad(
+            loaded = load_manager_squad(
                 rt.fpl_client(),
                 entry_id,
                 budget_remaining=budget_remaining,
+                free_transfers_override=free_transfers_override,
             )
         except FplApiError as exc:
             raise_fpl_http(exc, not_found_detail="Entry not found")
+        try:
+            ids = parse_element_ids(elements)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if ids is not None:
+            players_by_id = {
+                int(p["id"]): p for p in model_context().bootstrap.get("elements") or []
+            }
+            loaded = overlay_squad_elements(
+                loaded,
+                players_by_id,
+                ids,
+                captain_id=captain,
+                vice_id=vice,
+            )
+        return loaded
 
     def model_context():
         try:
@@ -196,6 +223,32 @@ def create_app(
             horizon,
         )
 
+    @app.get("/v1/entries/{entry_id}/board")
+    def board(
+        entry_id: int,
+        event: Annotated[int | None, Query(ge=1)] = None,
+        bank: Annotated[float | None, Query(ge=0)] = None,
+        ft: Annotated[int | None, Query(ge=0, le=MAX_FREE_TRANSFERS)] = None,
+        elements: Annotated[str | None, Query()] = None,
+        captain: Annotated[int | None, Query(ge=1)] = None,
+        vice: Annotated[int | None, Query(ge=1)] = None,
+    ):
+        try:
+            loaded = load_entry_squad(
+                entry_id,
+                budget_remaining=bank,
+                free_transfers_override=ft,
+                elements=elements,
+                captain=captain,
+                vice=vice,
+            )
+            ids = parse_element_ids(elements)
+            return board_payload(loaded, model_context(), rt.fpl_client(), event, ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FplApiError as exc:
+            raise_fpl_http(exc)
+
     @app.get("/v1/entries/{entry_id}/recommendations")
     def recommendations(
         entry_id: int,
@@ -203,8 +256,9 @@ def create_app(
         limit: Annotated[int, Query(ge=1, le=50)] = config.DEFAULT_LIST_LIMIT,
         remove_player: Annotated[str | None, Query()] = None,
         bank: Annotated[float | None, Query(ge=0)] = None,
+        elements: Annotated[str | None, Query()] = None,
     ):
-        loaded = load_entry_squad(entry_id, budget_remaining=bank)
+        loaded = load_entry_squad(entry_id, budget_remaining=bank, elements=elements)
         try:
             return recommendations_payload(
                 loaded,
@@ -233,6 +287,14 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             rt.end_plan()
+
+    @app.get("/v1/players")
+    def players(
+        q: Annotated[str, Query(min_length=1, max_length=40)],
+        element_type: Annotated[int | None, Query(ge=1, le=4)] = None,
+        limit: Annotated[int, Query(ge=1, le=30)] = 15,
+    ):
+        return player_search(model_context(), q=q, element_type=element_type, limit=limit)
 
     @app.get("/v1/xp")
     def xp(

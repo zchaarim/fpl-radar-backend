@@ -71,6 +71,7 @@ SQUAD_SHAPE = {
     ELEMENT_TYPE_FWD: 3,
 }
 DEFAULT_FREE_TRANSFERS = 1
+MAX_FREE_TRANSFERS = 5
 PLAN_POOL_PER_POSITION = 40
 
 # Shrinkage k: equivalent sample size of the prior. After n = k, 50/50 sample vs prior.

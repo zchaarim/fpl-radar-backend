@@ -6,7 +6,12 @@ from tests.fixtures import bootstrap_sample
 from fpl_radar.clients.auth import FplAuthClient
 from fpl_radar.models import PriceSource
 from fpl_radar.squad import (
+    apply_event_transfers,
+    estimate_free_transfers,
     load_manager_squad,
+    overlay_squad_elements,
+    parse_element_ids,
+    pin_armbands_to_xi,
     purchase_ledger,
     remaining_free_transfers,
     resolve_owned_players,
@@ -20,8 +25,8 @@ def test_public_squad_bank_and_estimated_prices() -> None:
     assert squad.bank_source == "last_deadline_bank"
     assert len(squad.players) == 15
     assert not squad.authenticated
-    assert squad.free_transfers == 1
-    assert squad.free_transfers_source == "default"
+    assert squad.free_transfers == 2
+    assert squad.free_transfers_source == "history_estimate"
     assert all(p.price_source in {PriceSource.ESTIMATED, PriceSource.FALLBACK_NOW_COST} for p in squad.players)
 
 
@@ -77,6 +82,109 @@ def test_purchase_ledger_applies_transfers() -> None:
     ledger = purchase_ledger(gw1, transfers, players)
     assert 12 not in ledger
     assert ledger[16] == 85
+
+
+def test_estimate_free_transfers_rolls_and_consumes() -> None:
+    events = [
+        {"id": 1, "finished": True},
+        {"id": 2, "finished": False},
+        {"id": 3, "finished": False},
+    ]
+    history = {"current": [{"event": 1, "event_transfers": 0}], "chips": []}
+    ft, src = estimate_free_transfers(events, history, [], current_id=2)
+    assert src == "history_estimate"
+    assert ft == 2
+    used = [{"event": 2, "element_out": 1, "element_in": 2}]
+    ft_used, _ = estimate_free_transfers(events, history, used, current_id=2)
+    assert ft_used == 1
+
+
+def test_estimate_free_transfers_wildcard_skips_spend() -> None:
+    events = [{"id": 1, "finished": True}, {"id": 2, "finished": False}]
+    history = {
+        "current": [{"event": 1, "event_transfers": 8}],
+        "chips": [{"name": "wildcard", "event": 1}],
+    }
+    ft, _ = estimate_free_transfers(events, history, [], current_id=2)
+    assert ft == 2
+
+
+def test_apply_event_transfers_is_idempotent_if_already_in_picks() -> None:
+    picks = [{"element": i, "position": i} for i in range(1, 16)]
+    moved = apply_event_transfers(
+        picks,
+        [{"event": 2, "element_out": 12, "element_in": 16, "time": "t"}],
+        2,
+    )
+    assert [p["element"] for p in moved][11] == 16
+    again = apply_event_transfers(
+        moved,
+        [{"event": 2, "element_out": 12, "element_in": 16, "time": "t"}],
+        2,
+    )
+    assert [p["element"] for p in again][11] == 16
+
+
+def test_reconstruct_applies_current_gw_transfers_on_published_picks() -> None:
+    routes = public_routes()
+    routes["entry/99/transfers/"] = [
+        {
+            "event": 2,
+            "element_in": 16,
+            "element_out": 12,
+            "element_in_cost": 85,
+            "element_out_cost": 50,
+            "time": "2026-08-20T12:00:00Z",
+        }
+    ]
+    client = client_from_routes(routes)
+    squad = load_manager_squad(client, 99)
+    ids = [p.element_id for p in squad.players]
+    assert 16 in ids
+    assert 12 not in ids
+    assert squad.free_transfers == 1
+
+
+def test_parse_and_overlay_elements() -> None:
+    client = client_from_routes(public_routes())
+    squad = load_manager_squad(client, 99)
+    ids = parse_element_ids("1,2,3,4,5,6,7,8,9,10,11,16,13,14,15")
+    assert ids is not None
+    overlaid = overlay_squad_elements(
+        squad,
+        {int(p["id"]): p for p in bootstrap_sample()["elements"]},
+        ids,
+    )
+    assert overlaid.players[11].element_id == 16
+    assert overlaid.players[11].web_name == "MID6"
+
+
+def test_overlay_pins_armbands_to_xi() -> None:
+    client = client_from_routes(public_routes())
+    squad = load_manager_squad(client, 99)
+    ordered = sorted(squad.players, key=lambda p: p.position or 99)
+    ids = [p.element_id for p in ordered]
+    captain = next(p for p in ordered if p.is_captain)
+    vice = next(p for p in ordered if p.is_vice_captain)
+    i_cap = ids.index(captain.element_id)
+    i_vice = ids.index(vice.element_id)
+    ids[i_cap], ids[i_vice] = ids[i_vice], ids[i_cap]
+    overlaid = overlay_squad_elements(
+        squad,
+        {int(p["id"]): p for p in bootstrap_sample()["elements"]},
+        ids,
+        captain_id=vice.element_id,
+        vice_id=ids[0] if ids[0] != vice.element_id else ids[1],
+    )
+    pin_armbands_to_xi(overlaid.players)
+    captains = [p for p in overlaid.players if p.is_captain]
+    vices = [p for p in overlaid.players if p.is_vice_captain]
+    assert len(captains) == 1
+    assert len(vices) == 1
+    assert captains[0].element_id != vices[0].element_id
+    assert (captains[0].position or 99) <= 11
+    assert (vices[0].position or 99) <= 11
+    assert not any(p.is_captain or p.is_vice_captain for p in overlaid.players if (p.position or 99) > 11)
 
 
 def test_remaining_free_transfers() -> None:

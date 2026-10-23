@@ -52,14 +52,37 @@ class FakeSession:
 
 def public_routes() -> dict[str, Any]:
     boot = bootstrap_sample()
-    picks = {"picks": [{"element": i, "position": i} for i in range(1, 16)]}
+    picks = {
+        "picks": [
+            {
+                "element": i,
+                "position": i,
+                "is_captain": i == 13,
+                "is_vice_captain": i == 8,
+            }
+            for i in range(1, 16)
+        ]
+    }
+    live = {
+        "elements": [
+            {"id": i, "stats": {"total_points": i + 1}} for i in range(1, 16)
+        ]
+    }
     return {
         "bootstrap-static/": boot,
-        "fixtures/": [{"id": 1, "event": 1}],
+        "fixtures/": [
+            {"id": 1, "event": 1, "team_h": 1, "team_a": 2},
+            {"id": 2, "event": 2, "team_h": 1, "team_a": 3},
+        ],
+        "event/1/live/": live,
+        "event/2/live/": live,
         "event-status/": {"status": []},
         "team/set-piece-notes/": {"teams": []},
         "entry/99/": {"id": 99, "name": "Test FC", "last_deadline_bank": 12},
-        "entry/99/history/": {"current": [{"event": 1, "bank": 12}]},
+        "entry/99/history/": {
+            "current": [{"event": 1, "bank": 12, "event_transfers": 0}],
+            "chips": [],
+        },
         "entry/99/transfers/": [
             {
                 "event": 1,

@@ -22,6 +22,8 @@ def player(
         "now_cost": now_cost,
         "ep_next": ep_next,
         "cost_change_start": cost_change_start,
+        "code": 1000 + pid,
+        "selected_by_percent": "10.5",
     }
 
 
@@ -59,8 +61,22 @@ def bootstrap_sample() -> dict[str, Any]:
         elements.append(player(*row))
     return {
         "events": [
-            {"id": 1, "is_current": False, "is_next": False, "finished": True},
-            {"id": 2, "is_current": True, "is_next": False, "finished": False},
+            {
+                "id": 1,
+                "name": "Gameweek 1",
+                "is_current": False,
+                "is_next": False,
+                "finished": True,
+                "deadline_time": "2026-08-15T10:00:00Z",
+            },
+            {
+                "id": 2,
+                "name": "Gameweek 2",
+                "is_current": True,
+                "is_next": False,
+                "finished": False,
+                "deadline_time": "2026-08-22T10:00:00Z",
+            },
         ],
         "teams": [
             {"id": 1, "name": "Arsenal", "short_name": "ARS"},

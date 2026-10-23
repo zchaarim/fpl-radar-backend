@@ -22,7 +22,7 @@ Library: `rank_replacements`, `make_plan` / `plan_transfers` / `plan_chip`. Play
 3. Sell price of `out`: `my_team` when authenticated, else reconstructed (`price_source` on each option).
 4. Bank: `--bank` override if set; else `my-team` bank if logged in; else last-deadline public bank.
 5. Horizon `N`: next N gameweeks from bootstrap `events` (`is_current` / `is_next`). Free hit forces N = 1.
-6. Free transfers: `my-team.transfers.limit − made` when authenticated; else **1**; `--ft` overrides.
+6. Free transfers: `my-team.transfers.limit − made` when authenticated; else estimated from public history ( +1 each GW, cap 5, minus transfers made; wildcard/free hit do not spend FTs ); `--ft` / `ft=` overrides. Remaining FTs are not on the public entry payload.
 
 ## recommend (1-for-1)
 
