@@ -7,6 +7,7 @@ from fpl_radar.clients.auth import FplAuthClient
 from fpl_radar.clients.fpl import FplApiError, FplClient
 from fpl_radar.fpl_rules import (
     DEFAULT_FREE_TRANSFERS,
+    MAX_FREE_TRANSFERS,
     estimated_selling_price,
     sell_on_fee,
     start_price,
@@ -81,6 +82,57 @@ def reconstruct_pick_elements(
     for i, element_id in enumerate(squad, start=1):
         picks.append({"element": element_id, "position": i})
     return picks, current_id if not finished else prev_id
+
+
+def estimate_free_transfers(
+    events: list[dict[str, Any]],
+    history: dict[str, Any],
+    transfers: list[dict[str, Any]],
+    current_id: int,
+    max_ft: int = MAX_FREE_TRANSFERS,
+) -> tuple[int, str]:
+    """Walk public history: +1 FT at each GW start (cap 5), minus transfers made.
+
+    Wildcard / free hit GWs do not consume FTs. Remaining FTs are not published
+    without ``my-team``, so this is an estimate.
+    """
+    if not events:
+        return DEFAULT_FREE_TRANSFERS, "default"
+    chips: dict[int, str] = {}
+    for chip in history.get("chips") or []:
+        eid = int(chip.get("event") or 0)
+        if eid:
+            chips[eid] = str(chip.get("name") or "").lower().replace(" ", "")
+    history_by_event = {
+        int(row["event"]): row
+        for row in history.get("current") or []
+        if row.get("event") is not None
+    }
+    made_by_event: dict[int, int] = {}
+    for transfer in transfers:
+        eid = int(transfer.get("event") or 0)
+        if eid:
+            made_by_event[eid] = made_by_event.get(eid, 0) + 1
+
+    ft = 0
+    for event in sorted(events, key=lambda e: int(e.get("id") or 0)):
+        eid = int(event.get("id") or 0)
+        if not eid or eid > current_id:
+            break
+        ft = min(max_ft, ft + 1)
+        chip = chips.get(eid, "")
+        skip = "wildcard" in chip or "freehit" in chip
+        if eid == current_id and not event.get("finished"):
+            made = made_by_event.get(eid, 0)
+        else:
+            row = history_by_event.get(eid) or {}
+            if row.get("event_transfers") is not None:
+                made = int(row["event_transfers"])
+            else:
+                made = made_by_event.get(eid, 0)
+        if not skip:
+            ft = max(0, ft - min(ft, made))
+    return ft, "history_estimate"
 
 
 def purchase_ledger(
@@ -166,6 +218,7 @@ def load_manager_squad(
     entry_id: int,
     budget_remaining: float | None = None,
     auth_client: FplAuthClient | None = None,
+    free_transfers_override: int | None = None,
 ) -> ManagerSquad:
     bootstrap = client.bootstrap_static()
     events = bootstrap.get("events") or []
@@ -185,8 +238,10 @@ def load_manager_squad(
     bank, bank_source = _bank_from_public(entry, history)
     authenticated = False
     my_team: dict[str, Any] | None = None
-    free_transfers = DEFAULT_FREE_TRANSFERS
-    free_transfers_source = "default"
+    current_id, _finished = current_event(events)
+    free_transfers, free_transfers_source = estimate_free_transfers(
+        events, history, transfers, current_id
+    )
 
     if auth_client is not None:
         auth_client.require_entry_match(entry_id)
@@ -212,6 +267,10 @@ def load_manager_squad(
     if budget_remaining is not None:
         bank = int(round(budget_remaining * 10))
         bank_source = "caller_override"
+
+    if free_transfers_override is not None:
+        free_transfers = max(0, min(MAX_FREE_TRANSFERS, int(free_transfers_override)))
+        free_transfers_source = "caller_override"
 
     auth_prices: dict[int, dict[str, Any]] = {}
     if my_team:

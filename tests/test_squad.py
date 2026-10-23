@@ -6,6 +6,7 @@ from tests.fixtures import bootstrap_sample
 from fpl_radar.clients.auth import FplAuthClient
 from fpl_radar.models import PriceSource
 from fpl_radar.squad import (
+    estimate_free_transfers,
     load_manager_squad,
     purchase_ledger,
     remaining_free_transfers,
@@ -20,8 +21,8 @@ def test_public_squad_bank_and_estimated_prices() -> None:
     assert squad.bank_source == "last_deadline_bank"
     assert len(squad.players) == 15
     assert not squad.authenticated
-    assert squad.free_transfers == 1
-    assert squad.free_transfers_source == "default"
+    assert squad.free_transfers == 2
+    assert squad.free_transfers_source == "history_estimate"
     assert all(p.price_source in {PriceSource.ESTIMATED, PriceSource.FALLBACK_NOW_COST} for p in squad.players)
 
 
@@ -77,6 +78,31 @@ def test_purchase_ledger_applies_transfers() -> None:
     ledger = purchase_ledger(gw1, transfers, players)
     assert 12 not in ledger
     assert ledger[16] == 85
+
+
+def test_estimate_free_transfers_rolls_and_consumes() -> None:
+    events = [
+        {"id": 1, "finished": True},
+        {"id": 2, "finished": False},
+        {"id": 3, "finished": False},
+    ]
+    history = {"current": [{"event": 1, "event_transfers": 0}], "chips": []}
+    ft, src = estimate_free_transfers(events, history, [], current_id=2)
+    assert src == "history_estimate"
+    assert ft == 2
+    used = [{"event": 2, "element_out": 1, "element_in": 2}]
+    ft_used, _ = estimate_free_transfers(events, history, used, current_id=2)
+    assert ft_used == 1
+
+
+def test_estimate_free_transfers_wildcard_skips_spend() -> None:
+    events = [{"id": 1, "finished": True}, {"id": 2, "finished": False}]
+    history = {
+        "current": [{"event": 1, "event_transfers": 8}],
+        "chips": [{"name": "wildcard", "event": 1}],
+    }
+    ft, _ = estimate_free_transfers(events, history, [], current_id=2)
+    assert ft == 2
 
 
 def test_remaining_free_transfers() -> None:

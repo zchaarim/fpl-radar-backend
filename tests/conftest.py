@@ -59,7 +59,10 @@ def public_routes() -> dict[str, Any]:
         "event-status/": {"status": []},
         "team/set-piece-notes/": {"teams": []},
         "entry/99/": {"id": 99, "name": "Test FC", "last_deadline_bank": 12},
-        "entry/99/history/": {"current": [{"event": 1, "bank": 12}]},
+        "entry/99/history/": {
+            "current": [{"event": 1, "bank": 12, "event_transfers": 0}],
+            "chips": [],
+        },
         "entry/99/transfers/": [
             {
                 "event": 1,

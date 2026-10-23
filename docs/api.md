@@ -92,7 +92,7 @@ python -m pytest -q
 | GET | `/v1/entries/{entry_id}/recommendations?horizon=5&limit=10&remove_player=&bank=` | none |
 | POST | `/v1/entries/{entry_id}/plan` | none |
 
-v1 squad is public picks only (estimated sale prices, default FTs). A later in-memory FPL session (option 3) can enrich “mine” without caching JWTs on disk.
+v1 squad is public picks only (estimated sale prices). Remaining FTs are **estimated** from history (+1 each GW, cap 5, minus transfers; wildcard/free hit do not spend FTs) unless `my-team` auth or `ft=` is set. A later in-memory FPL session can enrich “mine” without caching JWTs on disk.
 
 `GET /v1/xp` is top N **per position** by horizon xP (same as CLI `xp`). `GET /v1/xgi` is top N per position by xGI/90 (`min_minutes` drops thin samples). xGI returns **503** until features exist (`POST /v1/sync` or CLI `sync`).
 
