@@ -173,7 +173,8 @@ def test_board_default_event(monkeypatch) -> None:
     body = response.json()
     assert body["entry_id"] == 99
     assert body["event"]["id"] == 2
-    assert body["mode"] == "predicted"
+    assert body["event"]["started"] is True
+    assert body["mode"] == "actual"
     assert body["picks_published"] is True
     assert body["placeholder"] is True
     assert len(body["events"]) == 1
@@ -187,6 +188,9 @@ def test_board_default_event(monkeypatch) -> None:
     assert first["opponent"] == "LIV (H)"
     assert first["fixture_count"] == 1
     assert first["metric_actual"] == 2.0
+    assert first["minutes_played"] == 90
+    assert body["players"][-1]["minutes_played"] == 0
+    assert body["players"][-1]["fixture_started"] is True
     assert "metric_xp" in first
     captains = [p for p in body["players"] if p["is_captain"]]
     vices = [p for p in body["players"] if p["is_vice_captain"]]

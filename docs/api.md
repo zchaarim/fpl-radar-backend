@@ -96,7 +96,7 @@ python -m pytest -q
 
 v1 squad is public picks only (estimated sale prices). Remaining FTs are **estimated** from history (+1 each GW, cap 5, minus transfers; wildcard/free hit do not spend FTs) unless `my-team` auth or `ft=` is set. A later in-memory FPL session can enrich “mine” without caching JWTs on disk.
 
-`GET /v1/entries/{id}/board` is the squad-board payload for **unfinished** GWs only (default = first unfinished). Pick `position` 1–11 is the XI, 12–15 the bench. Captain xP is doubled in `team_xp` (XI only). `elements=` is 15 ids in pick order. `GET /v1/players?q=` is a name search for the board picker.
+`GET /v1/entries/{id}/board` is the squad-board payload for **unfinished** GWs only (default = first unfinished, including a live GW that has started). Pick `position` 1–11 is the XI, 12–15 the bench. Captain xP is doubled in `team_xp` (XI only). Live GWs set `mode=actual`, `event.started=true`, and fill `metric_actual` / `minutes_played` from FPL live. `fixture_started` is true once that club's match has kicked off — 0 minutes then means a DNP (show 0), otherwise show a dash. `elements=` is 15 ids in pick order. `GET /v1/players?q=` is a name search for the board picker.
 
 `GET /v1/xp` is top N **per position** by horizon xP (same as CLI `xp`). `GET /v1/xgi` is top N per position by xGI/90 (`min_minutes` drops thin samples). xGI returns **503** until features exist (`POST /v1/sync` or CLI `sync`).
 

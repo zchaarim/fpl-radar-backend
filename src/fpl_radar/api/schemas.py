@@ -86,6 +86,7 @@ class BoardEvent(BaseModel):
     finished: bool = False
     is_current: bool = False
     is_next: bool = False
+    started: bool = False
     deadline_time: str | None = None
 
 
@@ -109,6 +110,8 @@ class BoardPlayerRow(BaseModel):
     news: str = ""
     metric_xp: float = 0.0
     metric_actual: float | None = None
+    minutes_played: int | None = None
+    fixture_started: bool = False
     opponent: str = "Blank"
     fixture_count: int = 0
 
