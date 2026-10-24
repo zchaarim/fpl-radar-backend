@@ -65,14 +65,14 @@ def public_routes() -> dict[str, Any]:
     }
     live = {
         "elements": [
-            {"id": i, "stats": {"total_points": i + 1}} for i in range(1, 16)
+            {"id": i, "stats": {"total_points": i + 1, "minutes": 0 if i == 15 else 90}} for i in range(1, 16)
         ]
     }
     return {
         "bootstrap-static/": boot,
         "fixtures/": [
             {"id": 1, "event": 1, "team_h": 1, "team_a": 2},
-            {"id": 2, "event": 2, "team_h": 1, "team_a": 3},
+            {"id": 2, "event": 2, "team_h": 1, "team_a": 3, "started": True},
         ],
         "event/1/live/": live,
         "event/2/live/": live,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
+from datetime import datetime, timezone
 
 from fpl_radar.api.schemas import (
     BoardEvent,
@@ -77,6 +78,28 @@ def fold_search_text(value: str) -> str:
     return "".join(ch for ch in folded if not unicodedata.combining(ch)).casefold()
 
 
+def event_has_started(
+    *,
+    finished: bool,
+    is_current: bool,
+    deadline_time: str | None,
+) -> bool:
+    """True once the GW deadline has passed (or FPL marked it current) and it is not finished."""
+    if finished:
+        return False
+    if is_current:
+        return True
+    if not deadline_time:
+        return False
+    try:
+        deadline = datetime.fromisoformat(str(deadline_time).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    return deadline <= datetime.now(timezone.utc)
+
+
 def first_unfinished_event_id(bootstrap: dict) -> int | None:
     for event in bootstrap.get("events") or []:
         if event.get("finished"):
@@ -145,31 +168,44 @@ def _event_chips(bootstrap: dict) -> list[BoardEvent]:
         eid = int(event.get("id") or 0)
         if not eid:
             continue
+        finished = bool(event.get("finished"))
+        is_current = bool(event.get("is_current"))
+        deadline = event.get("deadline_time")
         chips.append(
             BoardEvent(
                 id=eid,
                 name=str(event.get("name") or f"GW {eid}"),
-                finished=bool(event.get("finished")),
-                is_current=bool(event.get("is_current")),
+                finished=finished,
+                is_current=is_current,
                 is_next=bool(event.get("is_next")),
-                deadline_time=event.get("deadline_time"),
+                started=event_has_started(
+                    finished=finished,
+                    is_current=is_current,
+                    deadline_time=str(deadline) if deadline else None,
+                ),
+                deadline_time=deadline,
             )
         )
     return chips
 
 
-def _live_points(client: FplClient, event_id: int) -> dict[int, float]:
+def _live_stats(client: FplClient, event_id: int) -> dict[int, tuple[float, int]]:
+    """Map element id → (total_points, minutes)."""
     try:
         live = client.event_live(event_id)
     except FplApiError:
         return {}
-    out: dict[int, float] = {}
+    out: dict[int, tuple[float, int]] = {}
     for row in live.get("elements") or []:
         pid = int(row.get("id") or 0)
         if not pid:
             continue
         stats = row.get("stats") or {}
-        out[pid] = float(stats.get("total_points") or 0)
+        try:
+            minutes = int(float(stats.get("minutes") or 0))
+        except (TypeError, ValueError):
+            minutes = 0
+        out[pid] = (float(stats.get("total_points") or 0), minutes)
     return out
 
 
@@ -198,6 +234,31 @@ def _opponent(fixtures: list[dict], team_id: int, event_id: int, teams: dict[int
     return " + ".join(labels), len(labels)
 
 
+def _team_fixture_started(fixtures: list[dict], team_id: int, event_id: int) -> bool:
+    now = datetime.now(timezone.utc)
+    for fixture in fixtures:
+        if int(fixture.get("event") or 0) != event_id:
+            continue
+        home = int(fixture.get("team_h") or 0)
+        away = int(fixture.get("team_a") or 0)
+        if team_id not in (home, away):
+            continue
+        if fixture.get("started") or fixture.get("finished"):
+            return True
+        raw = fixture.get("kickoff_time")
+        if not raw:
+            continue
+        try:
+            kickoff = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if kickoff.tzinfo is None:
+            kickoff = kickoff.replace(tzinfo=timezone.utc)
+        if kickoff <= now:
+            return True
+    return False
+
+
 def board_payload(
     squad: ManagerSquad,
     context: ModelContext,
@@ -214,13 +275,14 @@ def board_payload(
     selected = by_id[selected_id]
     if selected.finished:
         raise ValueError("Board only covers unfinished gameweeks")
-    mode = "predicted"
+    live_gw = selected.started
+    mode = "actual" if live_gw else "predicted"
     events = upcoming
     picks = _try_picks(client, squad.entry_id, selected_id)
     players_by_id = {int(p["id"]): p for p in context.bootstrap.get("elements") or []}
     teams = _club_map(context)
     fixtures = client.fixtures()
-    live = _live_points(client, selected_id)
+    live = _live_stats(client, selected_id) if live_gw else {}
     if picks is not None and not selected.finished:
         picks = apply_event_transfers(picks, client.entry_transfers(squad.entry_id), selected_id)
 
@@ -272,6 +334,7 @@ def board_payload(
         xp = player_xp(pid, [selected_id], context)
         rates = context.features.players.get(pid) if context.features else None
         opponent, fixture_count = _opponent(fixtures, team_id, selected_id, teams)
+        fixture_started = live_gw and _team_fixture_started(fixtures, team_id, selected_id)
         ownership = meta.get("selected_by_percent")
         try:
             ownership_f = float(ownership) if ownership not in (None, "") else None
@@ -283,6 +346,9 @@ def board_payload(
         now_cost = int(meta.get("now_cost") or 0)
         held = next((p for p in squad.players if p.element_id == pid), None)
         selling = held.selling_price if held is not None else now_cost
+        live_row = live.get(pid)
+        actual = live_row[0] if live_row is not None else None
+        minutes = live_row[1] if live_row is not None else None
         rows.append(
             BoardPlayerRow(
                 element_id=pid,
@@ -303,7 +369,9 @@ def board_payload(
                 chance_of_playing=chance,
                 news=news,
                 metric_xp=float(xp.per_event.get(selected_id, 0.0)),
-                metric_actual=live.get(pid),
+                metric_actual=actual if live_gw else None,
+                minutes_played=minutes if live_gw else None,
+                fixture_started=fixture_started,
                 opponent=opponent,
                 fixture_count=fixture_count,
             )
