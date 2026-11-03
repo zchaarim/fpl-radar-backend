@@ -58,6 +58,7 @@ def sync_understat(
         "prior_season": season - 1,
         "prior_players": len(prior_players),
         "prior_teams": len((prior or {}).get("teams") or {}),
+        "stale": bool(getattr(client, "used_stale", False)),
     }
 
 
