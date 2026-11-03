@@ -8,11 +8,17 @@ from typing import Any
 
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from fpl_radar import config
 from fpl_radar.ingest.store import JsonCache
 
 logger = logging.getLogger(__name__)
+
+# One outage should not repeat full connect timeouts for every caller in this process.
+_FETCH_COOLDOWN_SECONDS = 15 * 60
+_fetch_failed_until: dict[str, tuple[float, BaseException]] = {}
 
 
 class UnderstatError(RuntimeError):
@@ -51,34 +57,46 @@ class UnderstatClient:
         self.cache = cache
         self.timeout = timeout
         self.delay_seconds = delay_seconds
+        self.used_stale = False
         self.session = session or requests.Session()
         self.session.headers.setdefault("User-Agent", config.DEFAULT_USER_AGENT)
+        if session is None:
+            retry = Retry(
+                total=2,
+                connect=2,
+                read=2,
+                backoff_factor=0.5,
+                status_forcelist=(429, 500, 502, 503, 504),
+                allowed_methods=frozenset({"GET", "HEAD"}),
+            )
+            self.session.mount("https://", HTTPAdapter(max_retries=retry))
+
+    def _request_timeout(self) -> tuple[float, float]:
+        total = float(self.timeout)
+        return (min(10.0, total), total)
 
     def _sleep(self) -> None:
         if self.delay_seconds:
             time.sleep(self.delay_seconds)
 
-    def get_league_data(
-        self,
-        league: str = config.UNDERSTAT_LEAGUE,
-        season: int = config.UNDERSTAT_SEASON,
-        ttl_seconds: int | None = None,
-    ) -> dict[str, Any]:
-        key = f"understat_league_{league}_{season}"
-        ttl = config.UNDERSTAT_TTL_SECONDS if ttl_seconds is None else ttl_seconds
-        if self.cache:
-            cached = self.cache.get(key, ttl_seconds=ttl)
-            if cached is not None:
-                return cached
+    def _stale_or_raise(self, key: str, exc: BaseException) -> dict[str, Any]:
+        stale = self.cache.get(key, ttl_seconds=None) if self.cache else None
+        if stale is None:
+            raise exc
+        self.used_stale = True
+        logger.warning("Understat fetch failed for %s (%s); using stale cache", key, exc)
+        return stale
 
+    def _download_league(self, league: str, season: int) -> dict[str, Any]:
         league_url = f"{config.UNDERSTAT_BASE_URL}league/{league}/{season}"
-        warmup = self.session.get(league_url, timeout=self.timeout)
+        timeout = self._request_timeout()
+        warmup = self.session.get(league_url, timeout=timeout)
         warmup.raise_for_status()
         self._sleep()
 
         ajax_url = f"{config.UNDERSTAT_BASE_URL}getLeagueData/{league}/{season}"
         headers = {"X-Requested-With": "XMLHttpRequest", "Referer": league_url}
-        response = self.session.get(ajax_url, headers=headers, timeout=self.timeout)
+        response = self.session.get(ajax_url, headers=headers, timeout=timeout)
         data: dict[str, Any] | None = None
         if response.ok:
             try:
@@ -96,7 +114,32 @@ class UnderstatClient:
                 "players": extract_embedded_var(warmup.text, "playersData"),
                 "dates": extract_embedded_var(warmup.text, "datesData"),
             }
+        return data
 
+    def get_league_data(
+        self,
+        league: str = config.UNDERSTAT_LEAGUE,
+        season: int = config.UNDERSTAT_SEASON,
+        ttl_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        key = f"understat_league_{league}_{season}"
+        ttl = config.UNDERSTAT_TTL_SECONDS if ttl_seconds is None else ttl_seconds
+        if self.cache:
+            cached = self.cache.get(key, ttl_seconds=ttl)
+            if cached is not None:
+                return cached
+
+        blocked = _fetch_failed_until.get(key)
+        if blocked is not None and time.monotonic() < blocked[0]:
+            return self._stale_or_raise(key, blocked[1])
+
+        try:
+            data = self._download_league(league, season)
+        except requests.RequestException as exc:
+            _fetch_failed_until[key] = (time.monotonic() + _FETCH_COOLDOWN_SECONDS, exc)
+            return self._stale_or_raise(key, exc)
+
+        _fetch_failed_until.pop(key, None)
         if self.cache:
             self.cache.set(key, data)
         return data

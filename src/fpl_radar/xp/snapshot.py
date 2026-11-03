@@ -19,6 +19,14 @@ def _ep_float(player: dict[str, Any], key: str) -> float | None:
         return None
 
 
+def snapshot_stats_source(ctx: ModelContext) -> str:
+    """League xG vendor for this freeze. ``fpl`` means no Understat league file was used."""
+    league = ctx.understat_league or {}
+    if league.get("teams") or league.get("players"):
+        return "understat"
+    return "fpl"
+
+
 def snapshot_rows(
     ctx: ModelContext,
     event_id: int,
@@ -28,6 +36,7 @@ def snapshot_rows(
     first_kickoff: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     table = scoring_table(ctx.bootstrap.get("game_settings"))
+    stats_source = snapshot_stats_source(ctx)
     shrinkage = ShrinkageConfig()
     if ctx.features is not None:
         shrinkage = ctx.features.shrinkage
@@ -82,6 +91,7 @@ def snapshot_rows(
                 "ep_this": _ep_float(player, "ep_this"),
                 "blank": bool(event_break.get("blank")),
                 "late": bool(late),
+                "stats_source": stats_source,
                 "rate_source": xp.breakdown.get("rate_source"),
                 "shrinkage": shrinkage.as_dict(),
                 "variant": shrinkage.variant_slug(),
@@ -94,6 +104,7 @@ def snapshot_rows(
         "players": len(rows),
         "placeholder": ctx.features is None,
         "late": bool(late),
+        "stats_source": stats_source,
         "deadline_time": deadline_time,
         "first_kickoff": first_kickoff,
         "shrinkage": shrinkage.as_dict(),

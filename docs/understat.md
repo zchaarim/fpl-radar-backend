@@ -23,6 +23,8 @@ If AJAX is not JSON, fall back to decoding embedded `teamsData` / `playersData` 
 
 Polite delay between requests. Raw responses cache under `data/understat/` (gitignored) via `JsonCache`.
 
+If the host cannot be resolved or the connection fails, and a previous league file is still on disk, the client logs a warning and returns that file even past its TTL. The same process will not retry that league for 15 minutes. The next process tries the network again. `sync` reports `"stale": true` in that case.
+
 ## Later (not required for phase 1 sync)
 
 Same AJAX headers, typical paths used by community clients:
